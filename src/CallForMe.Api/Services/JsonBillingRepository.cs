@@ -8,6 +8,8 @@ namespace CallForMe.Api.Services;
 public interface IBillingRepository
 {
     Task<BalanceView> GetBalanceAsync(string clientId, CancellationToken cancellationToken);
+    Task<(BalanceView? Balance, string? Error)> DebitBalanceAsync(string clientId, decimal amount, CancellationToken cancellationToken);
+    Task<BalanceView> CreditBalanceAsync(string clientId, decimal amount, CancellationToken cancellationToken);
     Task<IReadOnlyList<PromoCodeView>> ListPromoCodesAsync(CancellationToken cancellationToken);
     Task<PromoCodeView> CreatePromoCodeAsync(string code, decimal amount, int? maxRedemptions, DateTimeOffset? expiresAt, CancellationToken cancellationToken);
     Task<PromoCodeView?> SetPromoCodeActiveAsync(Guid id, bool active, CancellationToken cancellationToken);
@@ -57,6 +59,53 @@ public sealed class JsonBillingRepository : IBillingRepository
                 .OrderByDescending(code => code.CreatedAt)
                 .Select(code => ToPromoCodeView(state, code))
                 .ToList();
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public async Task<(BalanceView? Balance, string? Error)> DebitBalanceAsync(
+        string clientId,
+        decimal amount,
+        CancellationToken cancellationToken)
+    {
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            var state = await LoadAsync(cancellationToken);
+            var balance = GetOrCreateBalance(state, clientId);
+            if (balance.Balance < amount)
+            {
+                return (null, $"Недостаточно баланса. Один звонок стоит {amount:0.##}.");
+            }
+
+            balance.Balance -= amount;
+            balance.UpdatedAt = DateTimeOffset.UtcNow;
+            await SaveAsync(state, cancellationToken);
+            return (ToBalanceView(balance), null);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public async Task<BalanceView> CreditBalanceAsync(
+        string clientId,
+        decimal amount,
+        CancellationToken cancellationToken)
+    {
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            var state = await LoadAsync(cancellationToken);
+            var balance = GetOrCreateBalance(state, clientId);
+            balance.Balance += amount;
+            balance.UpdatedAt = DateTimeOffset.UtcNow;
+            await SaveAsync(state, cancellationToken);
+            return ToBalanceView(balance);
         }
         finally
         {

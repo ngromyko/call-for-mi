@@ -14,6 +14,53 @@ const state = {
   subscribedCallId: null
 };
 
+const demoStartedAt = Date.now() - 9 * 60 * 1000;
+const callPrice = 100;
+
+const demoCall = {
+  id: "demo-call",
+  displayName: "Пример звонка",
+  phoneNumber: "+48123456789",
+  prompt: "Уточнить свободное время для записи и попросить подтверждение по SMS.",
+  language: "pl-PL",
+  userLanguage: "ru-RU",
+  autoPilot: false,
+  status: "Completed",
+  createdAt: new Date(demoStartedAt).toISOString(),
+  updatedAt: new Date(demoStartedAt + 2 * 60 * 1000).toISOString(),
+  durationSeconds: 74,
+  transcript: [
+    {
+      id: "demo-1",
+      speaker: "Assistant",
+      text: "Здравствуйте. Я звоню от имени клиента, чтобы узнать доступное время для записи.",
+      translation: "Dzien dobry. Dzwonie w imieniu klienta, aby zapytac o wolny termin.",
+      timestamp: new Date(demoStartedAt).toISOString()
+    },
+    {
+      id: "demo-2",
+      speaker: "Remote",
+      text: "Mamy wolne miejsce jutro o 10:30 albo w piatek po poludniu.",
+      translation: "Есть свободное место завтра в 10:30 или в пятницу после обеда.",
+      timestamp: new Date(demoStartedAt + 60 * 1000).toISOString()
+    },
+    {
+      id: "demo-3",
+      speaker: "Assistant",
+      text: "Подтвердите, пожалуйста, пятницу после обеда и отправьте SMS с адресом.",
+      translation: "Prosze potwierdzic piatek po poludniu i wyslac SMS z adresem.",
+      timestamp: new Date(demoStartedAt + 2 * 60 * 1000).toISOString()
+    }
+  ],
+  suggestions: [],
+  summary: {
+    title: "Запись согласована",
+    outcome: "Служба предложила два времени. Выбран вариант в пятницу после обеда.",
+    nextSteps: ["Дождаться SMS с адресом", "Взять документ, если он нужен для визита"]
+  },
+  isDemo: true
+};
+
 const languages = {
   "auto": "Авто",
   "ru-RU": "Русский",
@@ -37,6 +84,12 @@ dotnet user-secrets set "AI:Enabled" "true" --project src/CallForMe.Api
 dotnet user-secrets set "AI:ApiKey" "sk-..." --project src/CallForMe.Api`;
 
 const $ = selector => document.querySelector(selector);
+
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/service-worker.js").catch(() => {});
+  });
+}
 
 class ApiError extends Error {
   constructor(message, problem = null, status = 0) {
@@ -147,6 +200,14 @@ function normalizeForCompare(text = "") {
   return text.trim().replace(/\s+/g, " ").toLocaleLowerCase();
 }
 
+function speakerName(entry) {
+  const speaker = entry?.speaker;
+  if (speaker === 0 || speaker === "0") return "Remote";
+  if (speaker === 1 || speaker === "1") return "Assistant";
+  if (speaker === 2 || speaker === "2") return "System";
+  return speaker || "Remote";
+}
+
 function shouldShowTranslation(entry) {
   if (!entry?.translation) {
     return false;
@@ -161,11 +222,12 @@ function shouldShowTranslation(entry) {
     return true;
   }
 
-  if (entry.speaker === "Remote" && call.language === call.userLanguage) {
+  const speaker = speakerName(entry);
+  if (speaker === "Remote" && call.language === call.userLanguage) {
     return false;
   }
 
-  if (entry.speaker === "Assistant" && call.language === call.userLanguage) {
+  if (speaker === "Assistant" && call.language === call.userLanguage) {
     return false;
   }
 
@@ -176,12 +238,17 @@ function isFullTwilioAccountSid(value) {
   return /^AC[0-9a-fA-F]{32}$/.test(value);
 }
 
+function statusName(status) {
+  const statuses = ["Created", "Queued", "Calling", "Ringing", "InProgress", "Completed", "Failed", "Busy", "NoAnswer", "Canceled"];
+  return statuses[Number(status)] || status;
+}
+
 function isLive(call) {
-  return ["Created", "Queued", "Calling", "Ringing", "InProgress"].includes(call?.status);
+  return ["Created", "Queued", "Calling", "Ringing", "InProgress"].includes(statusName(call?.status));
 }
 
 function callStatusMeta(call) {
-  const status = call?.status || "Created";
+  const status = statusName(call?.status) || "Created";
   if (status === "Completed") return { className: "complete", icon: "check_circle", text: "Завершён" };
   const failed = status === "Failed" || (!!call?.error && !isLive(call));
   if (failed) return { className: "failed", icon: "error", text: "Ошибка" };
@@ -209,6 +276,14 @@ function contactName(call) {
 
 function isFailedCall(call) {
   return call?.status === "Failed" || (!!call?.error && call?.status !== "Completed" && !isLive(call));
+}
+
+function isDemoCall(callOrId) {
+  return callOrId === demoCall.id || callOrId?.id === demoCall.id || callOrId?.isDemo === true;
+}
+
+function visibleCalls() {
+  return state.auth?.authenticated && state.calls.length ? state.calls : [demoCall];
 }
 
 function upsertCall(call) {
@@ -267,6 +342,10 @@ async function startLiveUpdates() {
     .build();
 
   state.hub.on("CallUpdated", call => {
+    if (!state.auth?.authenticated) {
+      return;
+    }
+
     upsertCall(call);
     if (state.activeCall?.id === call.id) {
       state.activeCall = call;
@@ -280,6 +359,10 @@ async function startLiveUpdates() {
   });
 
   state.hub.on("TranscriptAdded", entry => {
+    if (!state.auth?.authenticated) {
+      return;
+    }
+
     if (!state.activeCall?.id || state.activeCall.transcript?.some(item => item.id === entry.id)) {
       return;
     }
@@ -384,14 +467,9 @@ function renderPromoCodes(promoCodes = []) {
 }
 
 function renderHistory() {
-  if (!state.calls.length) {
-    $("#callHistory").innerHTML = `
-      <div class="history-group-label">История пуста</div>
-      <div class="empty-history">Здесь появятся только реальные звонки.</div>`;
-    return;
-  }
+  const calls = visibleCalls();
 
-  $("#callHistory").innerHTML = `<div class="history-group-label">Сегодня</div>` + state.calls.slice(0, 8).map(call => {
+  $("#callHistory").innerHTML = `<div class="history-group-label">${state.calls.length ? "Сегодня" : "Пример"}</div>` + calls.slice(0, 8).map(call => {
     const live = isLive(call);
     const active = call.id === state.activeCall?.id;
     const status = callStatusMeta(call);
@@ -410,7 +488,7 @@ function renderHistory() {
           ${duration ? `<span class="history-duration">${escapeHtml(duration)}</span>` : ""}
         </span>
       </button>
-      <button class="history-menu-button material-symbols-rounded" type="button" data-menu-call-id="${call.id}" aria-label="Меню звонка" aria-expanded="false">more_vert</button>
+      <button class="history-menu-button material-symbols-rounded" type="button" data-menu-call-id="${call.id}" aria-label="Меню звонка" aria-expanded="false" ${isDemoCall(call) ? "hidden" : ""}>more_vert</button>
       <div class="history-menu" data-menu-for="${call.id}" hidden>
         <button type="button" data-hide-call-id="${call.id}">
           <span class="material-symbols-rounded">visibility_off</span>
@@ -439,7 +517,7 @@ function renderHeader() {
   const status = callStatusMeta(call);
   const live = isLive(call);
   const latest = call?.transcript?.at(-1);
-  const remoteSpeaking = live && latest?.speaker === "Remote";
+  const remoteSpeaking = live && speakerName(latest) === "Remote";
   document.body.classList.toggle("has-active-call", !!call);
   document.body.classList.toggle("is-live-call", live);
   document.body.classList.toggle("remote-speaking", remoteSpeaking);
@@ -486,10 +564,11 @@ function renderHeader() {
 }
 
 function messageMarkup(entry) {
-  if (entry.speaker === "System") {
+  const speaker = speakerName(entry);
+  if (speaker === "System") {
     return `<div class="system-message">${escapeHtml(entry.text)}</div>`;
   }
-  const assistant = entry.speaker === "Assistant";
+  const assistant = speaker === "Assistant";
   const showTranslation = shouldShowTranslation(entry);
   return `<div class="message-row ${assistant ? "assistant" : "remote"}">
     ${assistant ? "" : `<span class="speaker-avatar material-symbols-rounded">person</span>`}
@@ -583,12 +662,26 @@ function render() {
   setMobileView(state.mobileView);
 }
 
+function clearCallState() {
+  state.calls = [];
+  state.activeCall = null;
+  state.summaryRequests.clear();
+  const connectedState = globalThis.signalR?.HubConnectionState?.Connected || "Connected";
+  if (state.subscribedCallId && state.hub?.state === connectedState) {
+    state.hub.invoke("UnsubscribeCall", state.subscribedCallId).catch(() => {});
+  }
+  state.subscribedCallId = null;
+}
+
 async function loadConfig() {
   state.config = await api("/api/config");
 }
 
 async function loadAuth() {
   state.auth = await api("/api/auth/me");
+  if (!state.auth?.authenticated) {
+    clearCallState();
+  }
 }
 
 async function loadBalance() {
@@ -659,6 +752,8 @@ function openAuthDialog(mode = "login") {
   $("#authDialog").showModal();
   setTimeout(() => $("#authUsernameInput").focus(), 0);
 }
+
+$("#openAuthButton")?.addEventListener("click", () => openAuthDialog("login"));
 
 async function submitAuth() {
   clearAuthErrors();
@@ -790,6 +885,13 @@ async function checkTwilioSettings() {
 }
 
 async function loadCalls(selectId = null) {
+  if (!state.auth?.authenticated) {
+    clearCallState();
+    state.activeCall = demoCall;
+    render();
+    return;
+  }
+
   try {
     state.calls = await api("/api/calls");
     if (selectId) {
@@ -797,19 +899,27 @@ async function loadCalls(selectId = null) {
     } else if (state.activeCall?.id) {
       state.activeCall = state.calls.find(call => call.id === state.activeCall.id) || state.activeCall;
     } else {
-      state.activeCall = state.calls.find(isLive) || null;
+      state.activeCall = state.calls.find(isLive) || state.calls[0] || demoCall;
     }
-    if (state.activeCall?.id) {
+    if (state.activeCall?.id && !isDemoCall(state.activeCall)) {
       subscribeActiveCall(state.activeCall.id);
     }
     render();
-  } catch {
+  } catch (error) {
+    if (error.status === 401) {
+      state.auth = { authenticated: false, user: null, balanceClientId: null };
+      clearCallState();
+      state.activeCall = demoCall;
+      render();
+      return;
+    }
+
     showToast("Не удалось обновить звонки");
   }
 }
 
 async function refreshActiveCall({ forceRender = false } = {}) {
-  if (!state.activeCall?.id) {
+  if (!state.activeCall?.id || isDemoCall(state.activeCall)) {
     return null;
   }
 
@@ -834,8 +944,8 @@ async function refreshActiveCall({ forceRender = false } = {}) {
 }
 
 async function sendMessage(text, spokenText = null) {
-  if (!state.activeCall?.id) {
-    showToast("Сначала начните реальный звонок");
+  if (!state.activeCall?.id || isDemoCall(state.activeCall)) {
+    showToast("Это пример. Пополните баланс и начните реальный звонок.");
     return;
   }
   try {
@@ -850,7 +960,7 @@ async function sendMessage(text, spokenText = null) {
 }
 
 async function ensureCallSummary(call) {
-  if (!call?.id || isLive(call) || call.summary || !(call.transcript || []).length || state.summaryRequests.has(call.id)) {
+  if (!call?.id || isDemoCall(call) || isLive(call) || call.summary || !(call.transcript || []).length || state.summaryRequests.has(call.id)) {
     return;
   }
 
@@ -867,6 +977,14 @@ async function ensureCallSummary(call) {
 }
 
 async function selectCall(id) {
+  if (isDemoCall(id)) {
+    state.activeCall = demoCall;
+    state.startedAt = new Date(demoCall.createdAt).getTime();
+    setMobileView("call");
+    render();
+    return;
+  }
+
   try {
     state.activeCall = await api(`/api/calls/${id}`);
     state.startedAt = new Date(state.activeCall.createdAt).getTime();
@@ -1024,6 +1142,16 @@ async function logoutAdmin() {
 }
 
 function openNewCallDialog() {
+  if (!state.auth?.authenticated) {
+    openAuthDialog("login");
+    return;
+  }
+
+  if (Number(state.balance?.balance || 0) < callPrice) {
+    showToast(`Один звонок стоит ${callPrice}. Введите промокод, чтобы пополнить баланс.`);
+    return;
+  }
+
   if (!state.config.readyForRealCalls) {
     showToast(state.config.setupReason || "Завершите настройки перед реальным звонком");
     return;
@@ -1105,7 +1233,6 @@ $("#cancelAdminDialog").addEventListener("click", () => {
   $("#adminDialog").close();
 });
 $("#helpButton").addEventListener("click", () => $("#helpDialog").showModal());
-$("#openAuthButton").addEventListener("click", () => openAuthDialog("login"));
 $("#logoutButton").addEventListener("click", async () => {
   try {
     await logoutUser();
@@ -1215,7 +1342,7 @@ $("#messageForm").addEventListener("submit", event => {
 });
 $("#autopilotToggle").addEventListener("change", async event => {
   const enabled = event.target.checked;
-  if (!state.activeCall?.id) {
+  if (!state.activeCall?.id || isDemoCall(state.activeCall)) {
     event.target.checked = false;
     showToast("Сначала начните реальный звонок");
     return;
@@ -1232,7 +1359,7 @@ $("#autopilotToggle").addEventListener("change", async event => {
   }
 });
 $("#endCallButton").addEventListener("click", async () => {
-  if (!state.activeCall?.id) {
+  if (!state.activeCall?.id || isDemoCall(state.activeCall)) {
     showToast("Нет активного звонка");
     return;
   }
@@ -1253,6 +1380,11 @@ $("#endCallButton").addEventListener("click", async () => {
 $("#newCallForm").addEventListener("submit", async event => {
   event.preventDefault();
   clearNewCallErrors();
+  if (Number(state.balance?.balance || 0) < callPrice) {
+    showToast(`Один звонок стоит ${callPrice}. Введите промокод, чтобы пополнить баланс.`);
+    return;
+  }
+
   const data = new FormData(event.currentTarget);
   const startButton = $("#startCallButton");
   const startButtonLabel = startButton?.querySelector("span:last-child");

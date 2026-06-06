@@ -48,6 +48,40 @@ public sealed class SqliteBillingRepository : IBillingRepository
         return promoCodes;
     }
 
+    public async Task<(BalanceView? Balance, string? Error)> DebitBalanceAsync(
+        string clientId,
+        decimal amount,
+        CancellationToken cancellationToken)
+    {
+        await using var connection = _database.OpenConnection();
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        var balance = await GetOrCreateBalanceAsync(connection, (SqliteTransaction)transaction, clientId, cancellationToken);
+        if (balance.Balance < amount)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return (null, $"Недостаточно баланса. Один звонок стоит {DecimalToString(amount)}.");
+        }
+
+        var newBalance = balance.Balance - amount;
+        await UpdateBalanceAsync(connection, (SqliteTransaction)transaction, clientId, newBalance, cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return (new BalanceView(clientId, newBalance), null);
+    }
+
+    public async Task<BalanceView> CreditBalanceAsync(
+        string clientId,
+        decimal amount,
+        CancellationToken cancellationToken)
+    {
+        await using var connection = _database.OpenConnection();
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        var balance = await GetOrCreateBalanceAsync(connection, (SqliteTransaction)transaction, clientId, cancellationToken);
+        var newBalance = balance.Balance + amount;
+        await UpdateBalanceAsync(connection, (SqliteTransaction)transaction, clientId, newBalance, cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return new BalanceView(clientId, newBalance);
+    }
+
     public async Task<PromoCodeView> CreatePromoCodeAsync(
         string code,
         decimal amount,
@@ -127,13 +161,7 @@ public sealed class SqliteBillingRepository : IBillingRepository
 
         var balance = await GetOrCreateBalanceAsync(connection, (SqliteTransaction)transaction, clientId, cancellationToken);
         var newBalance = balance.Balance + promo.Amount;
-        await using var updateBalance = connection.CreateCommand();
-        updateBalance.Transaction = (SqliteTransaction)transaction;
-        updateBalance.CommandText = "UPDATE client_balances SET balance = $balance, updated_at = $updated_at WHERE client_id = $client_id";
-        updateBalance.Parameters.AddWithValue("$balance", DecimalToString(newBalance));
-        updateBalance.Parameters.AddWithValue("$updated_at", DateTimeOffset.UtcNow.ToString("O"));
-        updateBalance.Parameters.AddWithValue("$client_id", clientId);
-        await updateBalance.ExecuteNonQueryAsync(cancellationToken);
+        await UpdateBalanceAsync(connection, (SqliteTransaction)transaction, clientId, newBalance, cancellationToken);
 
         await using var insertRedemption = connection.CreateCommand();
         insertRedemption.Transaction = (SqliteTransaction)transaction;
@@ -177,6 +205,22 @@ public sealed class SqliteBillingRepository : IBillingRepository
         insert.Parameters.AddWithValue("$updated_at", DateTimeOffset.UtcNow.ToString("O"));
         await insert.ExecuteNonQueryAsync(cancellationToken);
         return new BalanceView(clientId, 0);
+    }
+
+    private static async Task UpdateBalanceAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        string clientId,
+        decimal balance,
+        CancellationToken cancellationToken)
+    {
+        await using var updateBalance = connection.CreateCommand();
+        updateBalance.Transaction = transaction;
+        updateBalance.CommandText = "UPDATE client_balances SET balance = $balance, updated_at = $updated_at WHERE client_id = $client_id";
+        updateBalance.Parameters.AddWithValue("$balance", DecimalToString(balance));
+        updateBalance.Parameters.AddWithValue("$updated_at", DateTimeOffset.UtcNow.ToString("O"));
+        updateBalance.Parameters.AddWithValue("$client_id", clientId);
+        await updateBalance.ExecuteNonQueryAsync(cancellationToken);
     }
 
     private async Task<bool> HasRedemptionAsync(

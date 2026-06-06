@@ -16,6 +16,7 @@ using Microsoft.Extensions.Options;
 
 const string AdminCookieName = "callforme_admin";
 const string UserCookieScheme = "callforme_user";
+const decimal CallPrice = 100m;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -71,7 +72,9 @@ builder.Services.AddAuthentication(UserCookieScheme)
             return Task.CompletedTask;
         };
     });
-builder.Services.AddSignalR();
+builder.Services.AddSignalR()
+    .AddJsonProtocol(options =>
+        options.PayloadSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 builder.Services.AddHttpClient<TwilioCallService>();
@@ -469,28 +472,56 @@ app.MapPost("/api/config/twilio/check", async (
 app.MapGet("/api/calls", async (HttpContext context, ICallRepository repository, CancellationToken cancellationToken) =>
 {
     var userId = CurrentUserId(context);
+    if (userId is null)
+    {
+        return UserRequired();
+    }
+
     var calls = await repository.ListAsync(cancellationToken);
     return Results.Ok(calls.Where(call => CanAccessCall(call, userId)));
 });
 
 app.MapGet("/api/calls/{id:guid}", async (Guid id, HttpContext context, ICallRepository repository, CancellationToken cancellationToken) =>
 {
+    var userId = CurrentUserId(context);
+    if (userId is null)
+    {
+        return UserRequired();
+    }
+
     var call = await repository.GetAsync(id, cancellationToken);
-    return call is null || !CanAccessCall(call, CurrentUserId(context)) ? Results.NotFound() : Results.Ok(call);
+    return call is null || !CanAccessCall(call, userId) ? Results.NotFound() : Results.Ok(call);
 });
 
 app.MapPost("/api/calls", async (
     CreateCallRequest request,
     HttpContext context,
     ICallRepository repository,
+    IBillingRepository billing,
     TwilioCallService twilio,
     IOptionsMonitor<AiOptions> ai,
     CancellationToken cancellationToken) =>
 {
+    var userId = CurrentUserId(context);
+    if (userId is null)
+    {
+        return UserRequired();
+    }
+
     var errors = RequestValidation.Validate(request);
     if (errors.Count > 0)
     {
         return Results.ValidationProblem(errors);
+    }
+
+    var balanceClientId = BalanceClientId(userId.Value);
+    var balance = await billing.GetBalanceAsync(balanceClientId, cancellationToken);
+    if (balance.Balance < CallPrice)
+    {
+        return Results.Problem(
+            title: "Balance required",
+            detail: $"Один звонок стоит {CallPrice:0}. Пополните баланс промокодом, чтобы начать звонок.",
+            statusCode: StatusCodes.Status402PaymentRequired);
     }
 
     if (!twilio.IsConfigured)
@@ -512,7 +543,7 @@ app.MapPost("/api/calls", async (
     var call = new CallSession
     {
         Id = Guid.NewGuid(),
-        UserId = CurrentUserId(context),
+        UserId = userId,
         DisplayName = CreateDisplayName(request.DisplayName, request.Prompt),
         PhoneNumber = request.PhoneNumber.Trim(),
         Prompt = request.Prompt.Trim(),
@@ -524,6 +555,15 @@ app.MapPost("/api/calls", async (
         CreatedAt = DateTimeOffset.UtcNow,
         UpdatedAt = DateTimeOffset.UtcNow
     };
+
+    var debit = await billing.DebitBalanceAsync(balanceClientId, CallPrice, cancellationToken);
+    if (debit.Balance is null)
+    {
+        return Results.Problem(
+            title: "Balance required",
+            detail: debit.Error ?? $"Один звонок стоит {CallPrice:0}.",
+            statusCode: StatusCodes.Status402PaymentRequired);
+    }
 
     await repository.CreateAsync(call, cancellationToken);
 
@@ -540,6 +580,7 @@ app.MapPost("/api/calls", async (
     }
     catch (TwilioApiException exception)
     {
+        await billing.CreditBalanceAsync(balanceClientId, CallPrice, CancellationToken.None);
         await repository.MutateAsync(call.Id, stored =>
         {
             stored.Status = CallStatus.Failed;
@@ -554,6 +595,7 @@ app.MapPost("/api/calls", async (
     }
     catch (Exception exception)
     {
+        await billing.CreditBalanceAsync(balanceClientId, CallPrice, CancellationToken.None);
         await repository.MutateAsync(call.Id, stored =>
         {
             stored.Status = CallStatus.Failed;
@@ -877,6 +919,11 @@ static IResult AdminRequired() => Results.Problem(
     detail: "Откройте настройки как админ.",
     statusCode: StatusCodes.Status401Unauthorized);
 
+static IResult UserRequired() => Results.Problem(
+    title: "Login required",
+    detail: "Войдите в аккаунт, чтобы видеть и создавать свои звонки.",
+    statusCode: StatusCodes.Status401Unauthorized);
+
 static bool IsAdmin(HttpRequest request, AdminOptions admin)
 {
     if (!admin.IsConfigured)
@@ -921,7 +968,7 @@ static Guid? CurrentUserId(HttpContext context)
 static string BalanceClientId(Guid userId) => $"user-{userId:N}";
 
 static bool CanAccessCall(CallSession call, Guid? userId) =>
-    call.UserId is null || (userId is not null && call.UserId == userId);
+    userId is not null && call.UserId == userId;
 
 static async Task<bool> CanAccessCallAsync(
     Guid callId,
