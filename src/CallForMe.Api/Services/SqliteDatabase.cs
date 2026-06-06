@@ -42,6 +42,7 @@ public sealed class SqliteDatabase
         command.CommandText = """
             CREATE TABLE IF NOT EXISTS calls (
                 id TEXT PRIMARY KEY,
+                user_id TEXT NULL,
                 display_name TEXT NULL,
                 phone_number TEXT NOT NULL,
                 prompt TEXT NOT NULL,
@@ -54,11 +55,32 @@ public sealed class SqliteDatabase
                 status TEXT NOT NULL,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
+                ringing_at TEXT NULL,
+                answered_at TEXT NULL,
+                completed_at TEXT NULL,
                 duration_seconds INTEGER NULL,
+                billed_seconds INTEGER NULL,
+                estimated_customer_cost TEXT NULL,
+                estimated_provider_cost TEXT NULL,
+                estimated_margin TEXT NULL,
+                twilio_voice_actual_cost TEXT NULL,
+                final_provider_cost TEXT NULL,
+                final_margin TEXT NULL,
+                pricing_tier TEXT NULL,
+                billing_json TEXT NULL,
+                usage_json TEXT NULL,
                 error TEXT NULL,
                 summary_json TEXT NULL,
                 transcript_json TEXT NOT NULL,
                 suggestions_json TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS users (
+                id TEXT PRIMARY KEY,
+                username TEXT NOT NULL UNIQUE,
+                password_hash TEXT NOT NULL,
+                password_salt TEXT NOT NULL,
+                created_at TEXT NOT NULL
             );
 
             CREATE TABLE IF NOT EXISTS promo_codes (
@@ -89,5 +111,37 @@ public sealed class SqliteDatabase
             );
             """;
         command.ExecuteNonQuery();
+        AddColumnIfMissing(connection, "calls", "user_id", "TEXT NULL");
+        AddColumnIfMissing(connection, "calls", "ringing_at", "TEXT NULL");
+        AddColumnIfMissing(connection, "calls", "answered_at", "TEXT NULL");
+        AddColumnIfMissing(connection, "calls", "completed_at", "TEXT NULL");
+        AddColumnIfMissing(connection, "calls", "billed_seconds", "INTEGER NULL");
+        AddColumnIfMissing(connection, "calls", "estimated_customer_cost", "TEXT NULL");
+        AddColumnIfMissing(connection, "calls", "estimated_provider_cost", "TEXT NULL");
+        AddColumnIfMissing(connection, "calls", "estimated_margin", "TEXT NULL");
+        AddColumnIfMissing(connection, "calls", "twilio_voice_actual_cost", "TEXT NULL");
+        AddColumnIfMissing(connection, "calls", "final_provider_cost", "TEXT NULL");
+        AddColumnIfMissing(connection, "calls", "final_margin", "TEXT NULL");
+        AddColumnIfMissing(connection, "calls", "pricing_tier", "TEXT NULL");
+        AddColumnIfMissing(connection, "calls", "billing_json", "TEXT NULL");
+        AddColumnIfMissing(connection, "calls", "usage_json", "TEXT NULL");
+    }
+
+    private static void AddColumnIfMissing(SqliteConnection connection, string table, string column, string type)
+    {
+        using var check = connection.CreateCommand();
+        check.CommandText = $"PRAGMA table_info({table})";
+        using var reader = check.ExecuteReader();
+        while (reader.Read())
+        {
+            if (string.Equals(reader.GetString(1), column, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+        }
+
+        using var alter = connection.CreateCommand();
+        alter.CommandText = $"ALTER TABLE {table} ADD COLUMN {column} {type}";
+        alter.ExecuteNonQuery();
     }
 }

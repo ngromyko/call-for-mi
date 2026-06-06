@@ -1,6 +1,9 @@
 const state = {
   calls: [],
   activeCall: null,
+  mobileView: "call",
+  authMode: "login",
+  auth: { authenticated: false, user: null, balanceClientId: null },
   config: { twilioEnabled: false, aiEnabled: false, readyForRealCalls: false },
   balance: { clientId: "", balance: 0 },
   startedAt: Date.now(),
@@ -96,6 +99,10 @@ function formatBalance(value) {
 }
 
 function getClientId() {
+  if (state.auth?.authenticated && state.auth.balanceClientId) {
+    return state.auth.balanceClientId;
+  }
+
   const key = "callforme_client_id";
   let clientId = localStorage.getItem(key);
   if (!clientId) {
@@ -128,6 +135,35 @@ function callDurationSeconds(call) {
 
 function escapeHtml(text = "") {
   return text.replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" })[char]);
+}
+
+function normalizeForCompare(text = "") {
+  return text.trim().replace(/\s+/g, " ").toLocaleLowerCase();
+}
+
+function shouldShowTranslation(entry) {
+  if (!entry?.translation) {
+    return false;
+  }
+
+  if (normalizeForCompare(entry.text) === normalizeForCompare(entry.translation)) {
+    return false;
+  }
+
+  const call = state.activeCall;
+  if (!call) {
+    return true;
+  }
+
+  if (entry.speaker === "Remote" && call.language === call.userLanguage) {
+    return false;
+  }
+
+  if (entry.speaker === "Assistant" && call.language === call.userLanguage) {
+    return false;
+  }
+
+  return true;
 }
 
 function isFullTwilioAccountSid(value) {
@@ -258,8 +294,19 @@ function renderSetupState() {
   $("#setupWarning").hidden = ready;
   $("#newCallButton").disabled = !ready;
   $("#newCallButton").title = ready ? "" : (state.config.setupReason || "Сначала завершите настройки");
+  $("#mobileNewCallButton").disabled = !ready;
+  $("#mobileNewCallButton").title = ready ? "" : (state.config.setupReason || "Сначала завершите настройки");
   const setupText = $("#setupWarning p");
   if (setupText) setupText.textContent = state.config.setupReason || "Проверьте настройки перед звонком.";
+}
+
+function setMobileView(view) {
+  state.mobileView = view === "history" ? "history" : "call";
+  document.body.classList.toggle("mobile-view-history", state.mobileView === "history");
+  document.body.classList.toggle("mobile-view-call", state.mobileView !== "history");
+  document.querySelectorAll("[data-mobile-view]").forEach(button => {
+    button.classList.toggle("active", button.dataset.mobileView === state.mobileView);
+  });
 }
 
 function renderSettings() {
@@ -291,6 +338,13 @@ function renderSettings() {
 
 function renderBalance() {
   $("#balanceAmount").textContent = formatBalance(state.balance.balance);
+}
+
+function renderAuth() {
+  const authenticated = !!state.auth?.authenticated;
+  $("#accountName").textContent = authenticated ? state.auth.user.username : "Гость";
+  $("#openAuthButton").hidden = authenticated;
+  $("#logoutButton").hidden = !authenticated;
 }
 
 function renderPromoCodes(promoCodes = []) {
@@ -401,7 +455,11 @@ function renderHeader() {
     ? `Язык звонка<br>${escapeHtml(languageName(call.language))}`
     : "Создайте звонок<br>когда будете готовы";
   $("#translationStatusText").textContent = call
-    ? (remoteSpeaking ? "Собеседник говорит. ИИ готовит варианты ответа." : `Перевод: ${languageName(call.userLanguage)} → ${languageName(call.language)}`)
+    ? (remoteSpeaking
+      ? "Собеседник говорит. ИИ готовит варианты ответа."
+      : call.userLanguage === call.language
+        ? `Без перевода: ${languageName(call.userLanguage)}`
+        : `Перевод: ${languageName(call.userLanguage)} → ${languageName(call.language)}`)
     : "Ответы и перевод появятся только после старта звонка";
   $("#messageInput").placeholder = call
     ? `Напишите ответ: ${languageName(call.userLanguage)}`
@@ -413,13 +471,14 @@ function messageMarkup(entry) {
     return `<div class="system-message">${escapeHtml(entry.text)}</div>`;
   }
   const assistant = entry.speaker === "Assistant";
+  const showTranslation = shouldShowTranslation(entry);
   return `<div class="message-row ${assistant ? "assistant" : "remote"}">
     ${assistant ? "" : `<span class="speaker-avatar material-symbols-rounded">person</span>`}
     <div class="message-wrap">
       <div class="message-meta"><span>${assistant ? "Вы через ИИ" : "Собеседник"}</span><time>${formatTime(entry.timestamp)}</time></div>
       <div class="message-bubble">
         <div class="message-original">${escapeHtml(entry.text)}</div>
-        ${entry.translation ? `<div class="message-translation">${escapeHtml(entry.translation)}</div>` : ""}
+        ${showTranslation ? `<div class="message-translation">${escapeHtml(entry.translation)}</div>` : ""}
       </div>
     </div>
   </div>`;
@@ -497,14 +556,20 @@ function renderConversation() {
 function render() {
   renderSetupState();
   renderSettings();
+  renderAuth();
   renderBalance();
   renderHistory();
   renderHeader();
   renderConversation();
+  setMobileView(state.mobileView);
 }
 
 async function loadConfig() {
   state.config = await api("/api/config");
+}
+
+async function loadAuth() {
+  state.auth = await api("/api/auth/me");
 }
 
 async function loadBalance() {
@@ -550,6 +615,58 @@ async function togglePromoCode(id, active) {
     body: JSON.stringify({ active })
   });
   await loadPromoCodes();
+}
+
+function setAuthMode(mode) {
+  state.authMode = mode === "register" ? "register" : "login";
+  $("#authTitle").textContent = state.authMode === "register" ? "Регистрация" : "Вход";
+  $("#authSubmitButton span:last-child").textContent = state.authMode === "register" ? "Зарегистрироваться" : "Войти";
+  $("#authSubmitButton .material-symbols-rounded").textContent = state.authMode === "register" ? "person_add" : "login";
+  $("#authModeLogin").classList.toggle("active", state.authMode === "login");
+  $("#authModeRegister").classList.toggle("active", state.authMode === "register");
+  $("#authPasswordInput").autocomplete = state.authMode === "register" ? "new-password" : "current-password";
+}
+
+function clearAuthErrors() {
+  $("#authErrorSummary").hidden = true;
+  $("#authErrorSummary").textContent = "";
+}
+
+function openAuthDialog(mode = "login") {
+  setAuthMode(mode);
+  clearAuthErrors();
+  $("#authUsernameInput").value = "";
+  $("#authPasswordInput").value = "";
+  $("#authDialog").showModal();
+  setTimeout(() => $("#authUsernameInput").focus(), 0);
+}
+
+async function submitAuth() {
+  clearAuthErrors();
+  const username = $("#authUsernameInput").value.trim();
+  const password = $("#authPasswordInput").value;
+  if (!username || !password) {
+    $("#authErrorSummary").textContent = "Введите username и пароль.";
+    $("#authErrorSummary").hidden = false;
+    return;
+  }
+
+  const endpoint = state.authMode === "register" ? "/api/auth/register" : "/api/auth/login";
+  state.auth = await api(endpoint, {
+    method: "POST",
+    body: JSON.stringify({ username, password })
+  });
+  await loadBalance();
+  await loadCalls(state.activeCall?.id);
+  render();
+}
+
+async function logoutUser() {
+  await api("/api/auth/logout", { method: "POST" });
+  state.auth = { authenticated: false, user: null, balanceClientId: null };
+  await loadBalance();
+  await loadCalls();
+  render();
 }
 
 async function refreshAdminState() {
@@ -710,6 +827,7 @@ async function selectCall(id) {
     state.activeCall = await api(`/api/calls/${id}`);
     state.startedAt = new Date(state.activeCall.createdAt).getTime();
     await subscribeActiveCall(id);
+    setMobileView("call");
     render();
   } catch {
     showToast("Не удалось открыть звонок");
@@ -861,14 +979,21 @@ async function logoutAdmin() {
   render();
 }
 
-$("#newCallButton").addEventListener("click", () => {
+function openNewCallDialog() {
   if (!state.config.readyForRealCalls) {
     showToast(state.config.setupReason || "Завершите настройки перед реальным звонком");
     return;
   }
   clearNewCallErrors();
   $("#newCallDialog").showModal();
+}
+
+$("#newCallButton").addEventListener("click", openNewCallDialog);
+$("#mobileNewCallButton").addEventListener("click", openNewCallDialog);
+document.querySelectorAll("[data-mobile-view]").forEach(button => {
+  button.addEventListener("click", () => setMobileView(button.dataset.mobileView));
 });
+$("#mobileSettingsNav").addEventListener("click", openSettingsProtected);
 $("#closeNewCallDialog").addEventListener("click", () => {
   clearNewCallErrors();
   $("#newCallDialog").close();
@@ -936,6 +1061,34 @@ $("#cancelAdminDialog").addEventListener("click", () => {
   $("#adminDialog").close();
 });
 $("#helpButton").addEventListener("click", () => $("#helpDialog").showModal());
+$("#openAuthButton").addEventListener("click", () => openAuthDialog("login"));
+$("#logoutButton").addEventListener("click", async () => {
+  try {
+    await logoutUser();
+    showToast("Вы вышли из аккаунта");
+  } catch {
+    showToast("Не удалось выйти");
+  }
+});
+$("#authModeLogin").addEventListener("click", () => setAuthMode("login"));
+$("#authModeRegister").addEventListener("click", () => setAuthMode("register"));
+$("#closeAuthDialog").addEventListener("click", () => $("#authDialog").close());
+$("#cancelAuthDialog").addEventListener("click", () => $("#authDialog").close());
+$("#authForm").addEventListener("submit", async event => {
+  event.preventDefault();
+  const button = $("#authSubmitButton");
+  button.disabled = true;
+  try {
+    await submitAuth();
+    $("#authDialog").close();
+    showToast(state.authMode === "register" ? "Аккаунт создан" : "Вы вошли");
+  } catch (error) {
+    $("#authErrorSummary").textContent = error.message || "Не удалось войти.";
+    $("#authErrorSummary").hidden = false;
+  } finally {
+    button.disabled = false;
+  }
+});
 $("#redeemPromoForm").addEventListener("submit", async event => {
   event.preventDefault();
   const input = $("#promoCodeInput");
@@ -1083,6 +1236,7 @@ $("#newCallForm").addEventListener("submit", async event => {
     state.startedAt = Date.now();
     await subscribeActiveCall(call.id);
     $("#newCallDialog").close();
+    setMobileView("call");
     render();
     showToast("Реальный звонок запущен");
   } catch (error) {
@@ -1109,10 +1263,12 @@ setInterval(() => {
 (async function boot() {
   try {
     await loadConfig();
+    await loadAuth().catch(() => {});
     await refreshAdminState().catch(() => {});
     await loadBalance().catch(() => {});
     await loadCalls();
     await startLiveUpdates();
+    setMobileView("call");
   } catch {
     showToast("Не удалось загрузить конфигурацию");
     render();

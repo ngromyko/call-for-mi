@@ -1,4 +1,5 @@
 using System.Data;
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using CallForMe.Api.Models;
@@ -109,15 +110,22 @@ public sealed class SqliteCallRepository : ICallRepository
 
         command.CommandText = """
             INSERT INTO calls (
-                id, display_name, phone_number, prompt, language, user_language, auto_pilot,
+                id, user_id, display_name, phone_number, prompt, language, user_language, auto_pilot,
                 recording_consent_confirmed, hidden, twilio_call_sid, status, created_at, updated_at,
-                duration_seconds, error, summary_json, transcript_json, suggestions_json
+                ringing_at, answered_at, completed_at, duration_seconds, billed_seconds,
+                estimated_customer_cost, estimated_provider_cost, estimated_margin,
+                twilio_voice_actual_cost, final_provider_cost, final_margin, pricing_tier,
+                billing_json, usage_json, error, summary_json, transcript_json, suggestions_json
             ) VALUES (
-                $id, $display_name, $phone_number, $prompt, $language, $user_language, $auto_pilot,
+                $id, $user_id, $display_name, $phone_number, $prompt, $language, $user_language, $auto_pilot,
                 $recording_consent_confirmed, $hidden, $twilio_call_sid, $status, $created_at, $updated_at,
-                $duration_seconds, $error, $summary_json, $transcript_json, $suggestions_json
+                $ringing_at, $answered_at, $completed_at, $duration_seconds, $billed_seconds,
+                $estimated_customer_cost, $estimated_provider_cost, $estimated_margin,
+                $twilio_voice_actual_cost, $final_provider_cost, $final_margin, $pricing_tier,
+                $billing_json, $usage_json, $error, $summary_json, $transcript_json, $suggestions_json
             )
             ON CONFLICT(id) DO UPDATE SET
+                user_id = excluded.user_id,
                 display_name = excluded.display_name,
                 phone_number = excluded.phone_number,
                 prompt = excluded.prompt,
@@ -130,13 +138,27 @@ public sealed class SqliteCallRepository : ICallRepository
                 status = excluded.status,
                 created_at = excluded.created_at,
                 updated_at = excluded.updated_at,
+                ringing_at = excluded.ringing_at,
+                answered_at = excluded.answered_at,
+                completed_at = excluded.completed_at,
                 duration_seconds = excluded.duration_seconds,
+                billed_seconds = excluded.billed_seconds,
+                estimated_customer_cost = excluded.estimated_customer_cost,
+                estimated_provider_cost = excluded.estimated_provider_cost,
+                estimated_margin = excluded.estimated_margin,
+                twilio_voice_actual_cost = excluded.twilio_voice_actual_cost,
+                final_provider_cost = excluded.final_provider_cost,
+                final_margin = excluded.final_margin,
+                pricing_tier = excluded.pricing_tier,
+                billing_json = excluded.billing_json,
+                usage_json = excluded.usage_json,
                 error = excluded.error,
                 summary_json = excluded.summary_json,
                 transcript_json = excluded.transcript_json,
                 suggestions_json = excluded.suggestions_json;
             """;
         command.Parameters.AddWithValue("$id", call.Id.ToString());
+        command.Parameters.AddWithValue("$user_id", call.UserId is null ? DBNull.Value : call.UserId.Value.ToString());
         command.Parameters.AddWithValue("$display_name", DbValue(call.DisplayName));
         command.Parameters.AddWithValue("$phone_number", call.PhoneNumber);
         command.Parameters.AddWithValue("$prompt", call.Prompt);
@@ -149,7 +171,20 @@ public sealed class SqliteCallRepository : ICallRepository
         command.Parameters.AddWithValue("$status", call.Status.ToString());
         command.Parameters.AddWithValue("$created_at", call.CreatedAt.ToString("O"));
         command.Parameters.AddWithValue("$updated_at", call.UpdatedAt.ToString("O"));
+        command.Parameters.AddWithValue("$ringing_at", call.RingingAt is null ? DBNull.Value : call.RingingAt.Value.ToString("O"));
+        command.Parameters.AddWithValue("$answered_at", call.AnsweredAt is null ? DBNull.Value : call.AnsweredAt.Value.ToString("O"));
+        command.Parameters.AddWithValue("$completed_at", call.CompletedAt is null ? DBNull.Value : call.CompletedAt.Value.ToString("O"));
         command.Parameters.AddWithValue("$duration_seconds", call.DurationSeconds is null ? DBNull.Value : call.DurationSeconds);
+        command.Parameters.AddWithValue("$billed_seconds", call.Billing is null ? DBNull.Value : call.Billing.BilledSeconds);
+        command.Parameters.AddWithValue("$estimated_customer_cost", call.Billing is null ? DBNull.Value : MoneyString(call.Billing.EstimatedCustomerCost));
+        command.Parameters.AddWithValue("$estimated_provider_cost", call.Billing is null ? DBNull.Value : MoneyString(call.Billing.EstimatedProviderCost));
+        command.Parameters.AddWithValue("$estimated_margin", call.Billing is null ? DBNull.Value : MoneyString(call.Billing.EstimatedMargin));
+        command.Parameters.AddWithValue("$twilio_voice_actual_cost", call.Billing?.TwilioVoiceActualCost is null ? DBNull.Value : MoneyString(call.Billing.TwilioVoiceActualCost.Value));
+        command.Parameters.AddWithValue("$final_provider_cost", call.Billing is null ? DBNull.Value : MoneyString(call.Billing.FinalProviderCost));
+        command.Parameters.AddWithValue("$final_margin", call.Billing is null ? DBNull.Value : MoneyString(call.Billing.FinalMargin));
+        command.Parameters.AddWithValue("$pricing_tier", call.Billing is null ? DBNull.Value : call.Billing.PricingTier);
+        command.Parameters.AddWithValue("$billing_json", call.Billing is null ? DBNull.Value : JsonSerializer.Serialize(call.Billing, _jsonOptions));
+        command.Parameters.AddWithValue("$usage_json", JsonSerializer.Serialize(call.Usage, _jsonOptions));
         command.Parameters.AddWithValue("$error", DbValue(call.Error));
         command.Parameters.AddWithValue("$summary_json", call.Summary is null ? DBNull.Value : JsonSerializer.Serialize(call.Summary, _jsonOptions));
         command.Parameters.AddWithValue("$transcript_json", JsonSerializer.Serialize(call.Transcript, _jsonOptions));
@@ -160,6 +195,7 @@ public sealed class SqliteCallRepository : ICallRepository
     private CallSession ReadCall(SqliteDataReader reader) => new()
     {
         Id = Guid.Parse(reader.GetString(reader.GetOrdinal("id"))),
+        UserId = ReadNullableGuid(reader, "user_id"),
         DisplayName = ReadNullableString(reader, "display_name"),
         PhoneNumber = reader.GetString(reader.GetOrdinal("phone_number")),
         Prompt = reader.GetString(reader.GetOrdinal("prompt")),
@@ -172,7 +208,12 @@ public sealed class SqliteCallRepository : ICallRepository
         Status = Enum.TryParse<CallStatus>(reader.GetString(reader.GetOrdinal("status")), out var status) ? status : CallStatus.Created,
         CreatedAt = DateTimeOffset.Parse(reader.GetString(reader.GetOrdinal("created_at"))),
         UpdatedAt = DateTimeOffset.Parse(reader.GetString(reader.GetOrdinal("updated_at"))),
+        RingingAt = ReadNullableDateTimeOffset(reader, "ringing_at"),
+        AnsweredAt = ReadNullableDateTimeOffset(reader, "answered_at"),
+        CompletedAt = ReadNullableDateTimeOffset(reader, "completed_at"),
         DurationSeconds = reader.IsDBNull(reader.GetOrdinal("duration_seconds")) ? null : reader.GetInt64(reader.GetOrdinal("duration_seconds")),
+        Billing = ReadJson<CallBilling>(reader, "billing_json"),
+        Usage = ReadJson<CallUsageMetrics>(reader, "usage_json") ?? new(),
         Error = ReadNullableString(reader, "error"),
         Summary = ReadJson<CallSummary>(reader, "summary_json"),
         Transcript = ReadJson<List<TranscriptEntry>>(reader, "transcript_json") ?? [],
@@ -191,7 +232,21 @@ public sealed class SqliteCallRepository : ICallRepository
         return reader.IsDBNull(ordinal) ? null : reader.GetString(ordinal);
     }
 
+    private static DateTimeOffset? ReadNullableDateTimeOffset(SqliteDataReader reader, string name)
+    {
+        var value = ReadNullableString(reader, name);
+        return string.IsNullOrWhiteSpace(value) ? null : DateTimeOffset.Parse(value);
+    }
+
     private static object DbValue(string? value) => string.IsNullOrWhiteSpace(value) ? DBNull.Value : value;
+
+    private static Guid? ReadNullableGuid(SqliteDataReader reader, string name)
+    {
+        var value = ReadNullableString(reader, name);
+        return Guid.TryParse(value, out var id) ? id : null;
+    }
+
+    private static string MoneyString(decimal value) => value.ToString("0.####", CultureInfo.InvariantCulture);
 
     private static bool IsRealCall(CallSession call) =>
         !call.Hidden &&

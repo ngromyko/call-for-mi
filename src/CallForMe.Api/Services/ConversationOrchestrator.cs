@@ -10,17 +10,20 @@ public sealed class ConversationOrchestrator
     private readonly AiConversationService _ai;
     private readonly ActiveRelayRegistry _relay;
     private readonly IHubContext<CallHub> _hub;
+    private readonly CallBillingService _billing;
 
     public ConversationOrchestrator(
         ICallRepository repository,
         AiConversationService ai,
         ActiveRelayRegistry relay,
-        IHubContext<CallHub> hub)
+        IHubContext<CallHub> hub,
+        CallBillingService billing)
     {
         _repository = repository;
         _ai = ai;
         _relay = relay;
         _hub = hub;
+        _billing = billing;
     }
 
     public async Task<CallSession?> HandleRemotePromptAsync(
@@ -32,7 +35,9 @@ public sealed class ConversationOrchestrator
         var call = await _repository.MutateAsync(callId, stored =>
         {
             stored.Status = CallStatus.InProgress;
+            stored.AnsweredAt ??= DateTimeOffset.UtcNow;
             stored.Transcript.Add(remoteEntry);
+            stored.Usage = CallUsageMetrics.From(stored);
             stored.UpdatedAt = DateTimeOffset.UtcNow;
         }, cancellationToken);
         if (call is null)
@@ -51,6 +56,7 @@ public sealed class ConversationOrchestrator
             }
 
             stored.Suggestions = turn.Suggestions.ToList();
+            stored.Usage = CallUsageMetrics.From(stored);
             stored.UpdatedAt = DateTimeOffset.UtcNow;
         }, cancellationToken);
 
@@ -132,6 +138,8 @@ public sealed class ConversationOrchestrator
         var call = await _repository.MutateAsync(callId, stored =>
         {
             stored.Status = CallStatus.InProgress;
+            stored.AnsweredAt ??= DateTimeOffset.UtcNow;
+            stored.Usage = CallUsageMetrics.From(stored);
             stored.UpdatedAt = DateTimeOffset.UtcNow;
         }, cancellationToken);
         if (call is not null)
@@ -148,6 +156,7 @@ public sealed class ConversationOrchestrator
         var call = await _repository.MutateAsync(callId, stored =>
         {
             stored.Transcript.Add(entry);
+            stored.Usage = CallUsageMetrics.From(stored);
             stored.UpdatedAt = DateTimeOffset.UtcNow;
         }, cancellationToken);
         if (call is not null)
@@ -161,6 +170,10 @@ public sealed class ConversationOrchestrator
         var call = await _repository.MutateAsync(callId, stored =>
         {
             stored.Status = CallStatus.Completed;
+            stored.CompletedAt ??= DateTimeOffset.UtcNow;
+            stored.DurationSeconds ??= EstimateDurationSeconds(stored);
+            stored.Usage = CallUsageMetrics.From(stored);
+            stored.Billing = _billing.Calculate(stored);
             stored.UpdatedAt = DateTimeOffset.UtcNow;
         }, cancellationToken);
         if (call is not null)
@@ -198,6 +211,7 @@ public sealed class ConversationOrchestrator
         {
             stored.Transcript.Add(entry);
             stored.Suggestions.Clear();
+            stored.Usage = CallUsageMetrics.From(stored);
             stored.UpdatedAt = DateTimeOffset.UtcNow;
         }, cancellationToken);
         if (call is not null)
@@ -238,4 +252,11 @@ public sealed class ConversationOrchestrator
         Source = source,
         Timestamp = DateTimeOffset.UtcNow
     };
+
+    private static long EstimateDurationSeconds(CallSession call)
+    {
+        var start = call.AnsweredAt ?? call.CreatedAt;
+        var end = call.CompletedAt ?? DateTimeOffset.UtcNow;
+        return Math.Max(0, (long)Math.Ceiling((end - start).TotalSeconds));
+    }
 }

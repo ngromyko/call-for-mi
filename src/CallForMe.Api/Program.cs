@@ -1,4 +1,5 @@
 using System.Net.WebSockets;
+using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -8,10 +9,13 @@ using CallForMe.Api.Hubs;
 using CallForMe.Api.Models;
 using CallForMe.Api.Options;
 using CallForMe.Api.Services;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Options;
 
 const string AdminCookieName = "callforme_admin";
+const string UserCookieScheme = "callforme_user";
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -53,6 +57,20 @@ builder.Services.AddCors(options =>
         policy.AllowAnyHeader().AllowAnyMethod().AllowCredentials()
             .SetIsOriginAllowed(_ => true));
 });
+builder.Services.AddAuthentication(UserCookieScheme)
+    .AddCookie(UserCookieScheme, options =>
+    {
+        options.Cookie.Name = "callforme_user";
+        options.Cookie.HttpOnly = true;
+        options.Cookie.SameSite = SameSiteMode.Lax;
+        options.ExpireTimeSpan = TimeSpan.FromDays(30);
+        options.SlidingExpiration = true;
+        options.Events.OnRedirectToLogin = context =>
+        {
+            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            return Task.CompletedTask;
+        };
+    });
 builder.Services.AddSignalR();
 builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
@@ -62,13 +80,17 @@ builder.Services.AddSingleton<TwilioRequestValidator>();
 builder.Services.AddSingleton<SqliteDatabase>();
 builder.Services.AddSingleton<ICallRepository, SqliteCallRepository>();
 builder.Services.AddSingleton<IBillingRepository, SqliteBillingRepository>();
+builder.Services.AddSingleton<IUserRepository, SqliteUserRepository>();
 builder.Services.AddSingleton<ActiveRelayRegistry>();
 builder.Services.AddSingleton<ConversationOrchestrator>();
+builder.Services.AddSingleton<CallBillingService>();
+builder.Services.AddSingleton<TwilioCostRefreshService>();
 builder.Services.AddSingleton<LocalSettingsWriter>();
 
 var app = builder.Build();
 
 app.UseCors();
+app.UseAuthentication();
 app.UseWebSockets();
 app.UseDefaultFiles();
 app.UseStaticFiles(new StaticFileOptions
@@ -102,12 +124,76 @@ app.MapGet("/api", (IOptionsMonitor<TwilioOptions> twilio, IOptionsMonitor<AiOpt
         "POST /api/promocodes/redeem",
         "GET /api/admin/promocodes",
         "POST /api/admin/promocodes",
+        "GET /api/auth/me",
+        "POST /api/auth/register",
+        "POST /api/auth/login",
+        "POST /api/auth/logout",
         "WS /twilio/conversation-relay",
         "SignalR /hubs/calls"
     },
     twilioEnabled = twilio.CurrentValue.IsConfigured,
     aiEnabled = ai.CurrentValue.IsConfigured
 }));
+
+app.MapGet("/api/auth/me", async (
+    HttpContext context,
+    IUserRepository users,
+    CancellationToken cancellationToken) =>
+{
+    var userId = CurrentUserId(context);
+    if (userId is null)
+    {
+        return Results.Ok(new { authenticated = false });
+    }
+
+    var user = await users.GetAsync(userId.Value, cancellationToken);
+    return user is null
+        ? Results.Ok(new { authenticated = false })
+        : Results.Ok(new
+        {
+            authenticated = true,
+            user,
+            balanceClientId = BalanceClientId(user.Id)
+        });
+});
+
+app.MapPost("/api/auth/register", async (
+    AuthRequest request,
+    HttpContext context,
+    IUserRepository users,
+    CancellationToken cancellationToken) =>
+{
+    var (user, error) = await users.RegisterAsync(request.Username, request.Password, cancellationToken);
+    if (user is null)
+    {
+        return Results.Problem(title: "Регистрация не удалась", detail: error, statusCode: StatusCodes.Status400BadRequest);
+    }
+
+    await SignInUserAsync(context, user);
+    return Results.Ok(new { authenticated = true, user, balanceClientId = BalanceClientId(user.Id) });
+});
+
+app.MapPost("/api/auth/login", async (
+    AuthRequest request,
+    HttpContext context,
+    IUserRepository users,
+    CancellationToken cancellationToken) =>
+{
+    var user = await users.ValidateLoginAsync(request.Username, request.Password, cancellationToken);
+    if (user is null)
+    {
+        return Results.Problem(title: "Вход не удался", detail: "Неверный username или пароль.", statusCode: StatusCodes.Status401Unauthorized);
+    }
+
+    await SignInUserAsync(context, user);
+    return Results.Ok(new { authenticated = true, user, balanceClientId = BalanceClientId(user.Id) });
+});
+
+app.MapPost("/api/auth/logout", async (HttpContext context) =>
+{
+    await context.SignOutAsync(UserCookieScheme);
+    return Results.NoContent();
+});
 
 app.MapGet("/api/admin/status", (HttpRequest request, IOptionsMonitor<AdminOptions> admin) => Results.Ok(new
 {
@@ -380,17 +466,22 @@ app.MapPost("/api/config/twilio/check", async (
     }
 });
 
-app.MapGet("/api/calls", async (ICallRepository repository, CancellationToken cancellationToken) =>
-    Results.Ok(await repository.ListAsync(cancellationToken)));
+app.MapGet("/api/calls", async (HttpContext context, ICallRepository repository, CancellationToken cancellationToken) =>
+{
+    var userId = CurrentUserId(context);
+    var calls = await repository.ListAsync(cancellationToken);
+    return Results.Ok(calls.Where(call => CanAccessCall(call, userId)));
+});
 
-app.MapGet("/api/calls/{id:guid}", async (Guid id, ICallRepository repository, CancellationToken cancellationToken) =>
+app.MapGet("/api/calls/{id:guid}", async (Guid id, HttpContext context, ICallRepository repository, CancellationToken cancellationToken) =>
 {
     var call = await repository.GetAsync(id, cancellationToken);
-    return call is null ? Results.NotFound() : Results.Ok(call);
+    return call is null || !CanAccessCall(call, CurrentUserId(context)) ? Results.NotFound() : Results.Ok(call);
 });
 
 app.MapPost("/api/calls", async (
     CreateCallRequest request,
+    HttpContext context,
     ICallRepository repository,
     TwilioCallService twilio,
     IOptionsMonitor<AiOptions> ai,
@@ -421,6 +512,7 @@ app.MapPost("/api/calls", async (
     var call = new CallSession
     {
         Id = Guid.NewGuid(),
+        UserId = CurrentUserId(context),
         DisplayName = CreateDisplayName(request.DisplayName, request.Prompt),
         PhoneNumber = request.PhoneNumber.Trim(),
         Prompt = request.Prompt.Trim(),
@@ -476,7 +568,9 @@ app.MapPost("/api/calls", async (
 
 app.MapPost("/api/calls/{id:guid}/messages", async (
     Guid id,
+    HttpContext context,
     SendMessageRequest request,
+    ICallRepository repository,
     ConversationOrchestrator orchestrator,
     CancellationToken cancellationToken) =>
 {
@@ -486,6 +580,11 @@ app.MapPost("/api/calls/{id:guid}/messages", async (
         {
             ["text"] = ["Message text is required."]
         });
+    }
+
+    if (!await CanAccessCallAsync(id, context, repository, cancellationToken))
+    {
+        return Results.NotFound();
     }
 
     var call = await orchestrator.SendOperatorMessageAsync(
@@ -498,20 +597,35 @@ app.MapPost("/api/calls/{id:guid}/messages", async (
 
 app.MapPost("/api/calls/{id:guid}/autopilot", async (
     Guid id,
+    HttpContext context,
     SetAutoPilotRequest request,
+    ICallRepository repository,
     ConversationOrchestrator orchestrator,
     CancellationToken cancellationToken) =>
 {
+    if (!await CanAccessCallAsync(id, context, repository, cancellationToken))
+    {
+        return Results.NotFound();
+    }
+
     var call = await orchestrator.SetAutoPilotAsync(id, request.Enabled, cancellationToken);
     return call is null ? Results.NotFound() : Results.Ok(call);
 });
 
 app.MapPost("/api/calls/{id:guid}/end", async (
     Guid id,
+    HttpContext context,
+    ICallRepository repository,
     ConversationOrchestrator orchestrator,
     TwilioCallService twilio,
+    TwilioCostRefreshService costRefresh,
     CancellationToken cancellationToken) =>
 {
+    if (!await CanAccessCallAsync(id, context, repository, cancellationToken))
+    {
+        return Results.NotFound();
+    }
+
     var call = await orchestrator.EndAsync(id, cancellationToken);
     if (call is null)
     {
@@ -519,23 +633,37 @@ app.MapPost("/api/calls/{id:guid}/end", async (
     }
 
     await twilio.EndCallAsync(call, cancellationToken);
+    costRefresh.Queue(call.Id);
     return Results.Ok(call);
 });
 
 app.MapPost("/api/calls/{id:guid}/summary", async (
     Guid id,
+    HttpContext context,
+    ICallRepository repository,
     ConversationOrchestrator orchestrator,
     CancellationToken cancellationToken) =>
 {
+    if (!await CanAccessCallAsync(id, context, repository, cancellationToken))
+    {
+        return Results.NotFound();
+    }
+
     var call = await orchestrator.EnsureSummaryAsync(id, cancellationToken);
     return call is null ? Results.NotFound() : Results.Ok(call);
 });
 
 app.MapPost("/api/calls/{id:guid}/hide", async (
     Guid id,
+    HttpContext context,
     ICallRepository repository,
     CancellationToken cancellationToken) =>
 {
+    if (!await CanAccessCallAsync(id, context, repository, cancellationToken))
+    {
+        return Results.NotFound();
+    }
+
     var call = await repository.MutateAsync(id, stored =>
     {
         stored.Hidden = true;
@@ -577,6 +705,8 @@ app.MapPost("/twilio/status", async (
     ICallRepository repository,
     TwilioRequestValidator validator,
     ConversationOrchestrator orchestrator,
+    CallBillingService billing,
+    TwilioCostRefreshService costRefresh,
     Microsoft.AspNetCore.SignalR.IHubContext<CallHub> hub,
     CancellationToken cancellationToken) =>
 {
@@ -596,10 +726,24 @@ app.MapPost("/twilio/status", async (
     long? duration = long.TryParse(form["CallDuration"], out var parsedDuration) ? parsedDuration : null;
     var call = await repository.MutateAsync(callId, stored =>
     {
+        var now = DateTimeOffset.UtcNow;
         stored.Status = TwilioStatusMapper.Map(status);
         if (!string.IsNullOrWhiteSpace(sid))
         {
             stored.TwilioCallSid = sid;
+        }
+
+        if (stored.Status == CallStatus.Ringing)
+        {
+            stored.RingingAt ??= now;
+        }
+        else if (stored.Status == CallStatus.InProgress)
+        {
+            stored.AnsweredAt ??= now;
+        }
+        else if (!IsLiveStatus(stored.Status))
+        {
+            stored.CompletedAt ??= now;
         }
 
         if (ShouldClearCallError(stored.Status))
@@ -608,7 +752,13 @@ app.MapPost("/twilio/status", async (
         }
 
         stored.DurationSeconds = duration ?? stored.DurationSeconds;
-        stored.UpdatedAt = DateTimeOffset.UtcNow;
+        stored.Usage = CallUsageMetrics.From(stored);
+        if (!IsLiveStatus(stored.Status))
+        {
+            stored.Billing = billing.Calculate(stored);
+        }
+
+        stored.UpdatedAt = now;
     }, cancellationToken);
 
     if (call is null)
@@ -620,6 +770,7 @@ app.MapPost("/twilio/status", async (
 
     if (call.Status == CallStatus.Completed)
     {
+        costRefresh.Queue(call.Id);
         await orchestrator.EnsureSummaryAsync(call.Id, cancellationToken);
     }
 
@@ -737,6 +888,45 @@ static string AdminToken(AdminOptions admin)
     return Convert.ToBase64String(hmac.ComputeHash(Encoding.UTF8.GetBytes("call-for-me-admin-session-v1")));
 }
 
+static async Task SignInUserAsync(HttpContext context, UserAccountView user)
+{
+    var claims = new List<Claim>
+    {
+        new(ClaimTypes.NameIdentifier, user.Id.ToString()),
+        new(ClaimTypes.Name, user.Username)
+    };
+    var identity = new ClaimsIdentity(claims, UserCookieScheme);
+    await context.SignInAsync(
+        UserCookieScheme,
+        new ClaimsPrincipal(identity),
+        new AuthenticationProperties
+        {
+            IsPersistent = true,
+            ExpiresUtc = DateTimeOffset.UtcNow.AddDays(30)
+        });
+}
+
+static Guid? CurrentUserId(HttpContext context)
+{
+    var value = context.User.FindFirstValue(ClaimTypes.NameIdentifier);
+    return Guid.TryParse(value, out var id) ? id : null;
+}
+
+static string BalanceClientId(Guid userId) => $"user-{userId:N}";
+
+static bool CanAccessCall(CallSession call, Guid? userId) =>
+    call.UserId is null || (userId is not null && call.UserId == userId);
+
+static async Task<bool> CanAccessCallAsync(
+    Guid callId,
+    HttpContext context,
+    ICallRepository repository,
+    CancellationToken cancellationToken)
+{
+    var call = await repository.GetAsync(callId, cancellationToken);
+    return call is not null && CanAccessCall(call, CurrentUserId(context));
+}
+
 static bool SecretEquals(string? left, string? right)
 {
     if (left is null || right is null)
@@ -832,6 +1022,13 @@ static bool ShouldClearCallError(CallStatus status) => status is
     CallStatus.InProgress or
     CallStatus.Completed;
 
+static bool IsLiveStatus(CallStatus status) => status is
+    CallStatus.Created or
+    CallStatus.Queued or
+    CallStatus.Calling or
+    CallStatus.Ringing or
+    CallStatus.InProgress;
+
 static string CreateDisplayName(string? displayName, string prompt)
 {
     if (!string.IsNullOrWhiteSpace(displayName))
@@ -907,6 +1104,8 @@ public partial class Program;
 public sealed record SaveOpenAiSettingsRequest(string ApiKey, string? Model);
 
 public sealed record AdminLoginRequest(string Password);
+
+public sealed record AuthRequest(string Username, string Password);
 
 public sealed record SaveTwilioSettingsRequest(
     string AccountSid,

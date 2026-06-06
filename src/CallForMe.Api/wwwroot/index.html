@@ -10,9 +10,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,300,0,0" rel="stylesheet">
-  <link rel="stylesheet" href="/styles.css?v=promo-admin-1">
+  <link rel="stylesheet" href="/styles.css?v=mobile-tabs-1">
 </head>
-<body>
+<body class="mobile-view-call">
   <div class="app-shell">
     <aside class="sidebar">
       <div class="brand">
@@ -27,6 +27,21 @@
         <span class="material-symbols-rounded">call</span>
         Новый звонок
       </button>
+
+      <section class="account-card" id="accountCard">
+        <div>
+          <span>Аккаунт</span>
+          <strong id="accountName">Гость</strong>
+        </div>
+        <button type="button" class="account-button" id="openAuthButton">
+          <span class="material-symbols-rounded">login</span>
+          Войти
+        </button>
+        <button type="button" class="account-button" id="logoutButton" hidden>
+          <span class="material-symbols-rounded">logout</span>
+          Выйти
+        </button>
+      </section>
 
       <section class="balance-card" aria-label="Баланс">
         <div>
@@ -155,6 +170,24 @@
     </main>
   </div>
 
+  <nav class="mobile-nav" aria-label="Основная навигация">
+    <button type="button" class="mobile-nav-button active" id="mobileCurrentNav" data-mobile-view="call">
+      <span class="material-symbols-rounded">phone_in_talk</span>
+      <span>Звонок</span>
+    </button>
+    <button type="button" class="mobile-nav-button" id="mobileHistoryNav" data-mobile-view="history">
+      <span class="material-symbols-rounded">history</span>
+      <span>История</span>
+    </button>
+    <button type="button" class="mobile-nav-action" id="mobileNewCallButton" aria-label="Новый звонок">
+      <span class="material-symbols-rounded">add_call</span>
+    </button>
+    <button type="button" class="mobile-nav-button" id="mobileSettingsNav">
+      <span class="material-symbols-rounded">tune</span>
+      <span>Настройки</span>
+    </button>
+  </nav>
+
   <dialog class="modal" id="newCallDialog">
     <form class="modal-card" id="newCallForm" novalidate>
       <div class="modal-header">
@@ -266,6 +299,41 @@
         <button type="button" class="secondary-button" id="cancelAdminDialog">Отмена</button>
         <button type="submit" class="primary-button" id="adminLoginButton">
           <span class="material-symbols-rounded">lock_open</span>
+          <span>Войти</span>
+        </button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog class="modal small-modal" id="authDialog">
+    <form class="modal-card" id="authForm" novalidate>
+      <div class="modal-header">
+        <div>
+          <span class="eyebrow">Аккаунт</span>
+          <h2 id="authTitle">Вход</h2>
+          <p>Username и пароль нужны, чтобы привязать баланс и историю к вашему аккаунту.</p>
+        </div>
+        <button type="button" class="icon-button" id="closeAuthDialog" aria-label="Закрыть">
+          <span class="material-symbols-rounded">close</span>
+        </button>
+      </div>
+      <div class="form-error-summary" id="authErrorSummary" hidden></div>
+      <label>
+        <span>Username</span>
+        <input id="authUsernameInput" name="username" type="text" autocomplete="username" placeholder="nikita">
+      </label>
+      <label>
+        <span>Пароль</span>
+        <input id="authPasswordInput" name="password" type="password" autocomplete="current-password" placeholder="Минимум 6 символов">
+      </label>
+      <div class="auth-switch">
+        <button type="button" id="authModeLogin" class="active">Вход</button>
+        <button type="button" id="authModeRegister">Регистрация</button>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="secondary-button" id="cancelAuthDialog">Отмена</button>
+        <button type="submit" class="primary-button" id="authSubmitButton">
+          <span class="material-symbols-rounded">login</span>
           <span>Войти</span>
         </button>
       </div>
@@ -397,6 +465,6 @@
 
   <div class="toast" id="toast" role="status"></div>
   <script src="/vendor/signalr.min.js?v=8.0.7"></script>
-  <script src="/app.js?v=promo-admin-1"></script>
+  <script src="/app.js?v=mobile-tabs-1"></script>
 </body>
 </html>

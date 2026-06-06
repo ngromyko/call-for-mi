@@ -1,4 +1,5 @@
 using System.Net.Http.Headers;
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -110,6 +111,43 @@ public sealed class TwilioCallService
         response.EnsureSuccessStatusCode();
     }
 
+    public async Task<TwilioCallCost?> GetCallCostAsync(string callSid, CancellationToken cancellationToken)
+    {
+        var options = _options.CurrentValue;
+        if (!IsConfigured || string.IsNullOrWhiteSpace(callSid))
+        {
+            return null;
+        }
+
+        using var request = new HttpRequestMessage(
+            HttpMethod.Get,
+            $"https://api.twilio.com/2010-04-01/Accounts/{options.AccountSid}/Calls/{callSid}.json");
+        request.Headers.Authorization = CreateBasicAuthentication(options);
+
+        using var response = await _httpClient.SendAsync(request, cancellationToken);
+        var json = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            var payload = ParseTwilioApiResponse(json, response.IsSuccessStatusCode);
+            throw TwilioApiException.FromResponse(response, payload);
+        }
+
+        using var document = JsonDocument.Parse(json);
+        var root = document.RootElement;
+        var price = GetString(root, "price", "Price");
+        if (string.IsNullOrWhiteSpace(price) ||
+            !decimal.TryParse(price, NumberStyles.Number, CultureInfo.InvariantCulture, out var parsedPrice))
+        {
+            return null;
+        }
+
+        return new TwilioCallCost(
+            parsedPrice,
+            GetString(root, "price_unit", "PriceUnit") ?? "USD",
+            GetString(root, "duration", "Duration"),
+            GetString(root, "status", "Status"));
+    }
+
     private static AuthenticationHeaderValue CreateBasicAuthentication(TwilioOptions options) =>
         new("Basic", Convert.ToBase64String(Encoding.ASCII.GetBytes($"{options.AccountSid}:{options.AuthToken}")));
 
@@ -127,19 +165,29 @@ public sealed class TwilioCallService
 
         try
         {
-            using var document = JsonDocument.Parse(json);
-            var root = document.RootElement;
-            return new TwilioApiResponse(
-                GetString(root, "sid", "Sid"),
-                GetString(root, "message", "Message"),
-                GetInt(root, "code", "Code"),
-                GetString(root, "more_info", "moreInfo", "MoreInfo"),
-                GetInt(root, "status", "Status"));
+            return ParseTwilioApiResponse(json, response.IsSuccessStatusCode);
         }
         catch (JsonException)
         {
             return new TwilioApiResponse(null, response.IsSuccessStatusCode ? null : json, null, null, null);
         }
+    }
+
+    private static TwilioApiResponse ParseTwilioApiResponse(string json, bool success)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return new TwilioApiResponse(null, null, null, null, null);
+        }
+
+        using var document = JsonDocument.Parse(json);
+        var root = document.RootElement;
+        return new TwilioApiResponse(
+            GetString(root, "sid", "Sid"),
+            GetString(root, "message", "Message"),
+            GetInt(root, "code", "Code"),
+            GetString(root, "more_info", "moreInfo", "MoreInfo"),
+            GetInt(root, "status", "Status"));
     }
 
     private static string? GetString(JsonElement root, params string[] names)
@@ -185,6 +233,12 @@ public sealed class TwilioCallService
         string? MoreInfo,
         int? Status);
 }
+
+public sealed record TwilioCallCost(
+    decimal Price,
+    string PriceUnit,
+    string? Duration,
+    string? Status);
 
 public sealed class TwilioApiException : Exception
 {
