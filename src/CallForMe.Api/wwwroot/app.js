@@ -9,6 +9,7 @@ const state = {
   startedAt: Date.now(),
   toastTimer: null,
   summaryRequests: new Set(),
+  lastActivePollAt: 0,
   hub: null,
   subscribedCallId: null
 };
@@ -223,6 +224,17 @@ function upsertCall(call) {
   }
 
   state.calls.sort((left, right) => new Date(right.createdAt) - new Date(left.createdAt));
+}
+
+function hasCallChanged(left, right) {
+  if (!left || !right) {
+    return !!left !== !!right;
+  }
+
+  return left.updatedAt !== right.updatedAt ||
+    left.status !== right.status ||
+    (left.transcript?.length || 0) !== (right.transcript?.length || 0) ||
+    (left.suggestions?.length || 0) !== (right.suggestions?.length || 0);
 }
 
 async function subscribeActiveCall(callId) {
@@ -796,6 +808,31 @@ async function loadCalls(selectId = null) {
   }
 }
 
+async function refreshActiveCall({ forceRender = false } = {}) {
+  if (!state.activeCall?.id) {
+    return null;
+  }
+
+  try {
+    const call = await api(`/api/calls/${state.activeCall.id}`);
+    const changed = forceRender || hasCallChanged(state.activeCall, call);
+    state.activeCall = call;
+    upsertCall(call);
+    if (isLive(call)) {
+      state.startedAt = new Date(call.createdAt).getTime();
+    }
+    if (changed) {
+      renderHeader();
+      renderConversation();
+      renderHistory();
+      renderActiveHistoryDuration();
+    }
+    return call;
+  } catch {
+    return null;
+  }
+}
+
 async function sendMessage(text, spokenText = null) {
   if (!state.activeCall?.id) {
     showToast("Сначала начните реальный звонок");
@@ -1201,10 +1238,16 @@ $("#endCallButton").addEventListener("click", async () => {
   }
   try {
     state.activeCall = await api(`/api/calls/${state.activeCall.id}/end`, { method: "POST" });
+    upsertCall(state.activeCall);
     render();
     showToast("Звонок завершён");
-  } catch {
-    showToast("Не удалось завершить звонок");
+  } catch (error) {
+    const call = await refreshActiveCall({ forceRender: true });
+    if (call && !isLive(call)) {
+      showToast("Звонок уже завершён");
+      return;
+    }
+    showToast(error.message || "Не удалось завершить звонок");
   }
 });
 $("#newCallForm").addEventListener("submit", async event => {
@@ -1266,6 +1309,14 @@ setInterval(() => {
   $("#callTimer").textContent = `${minutes}:${seconds}`;
   renderActiveHistoryDuration();
 }, 1000);
+
+setInterval(() => {
+  if (!state.activeCall?.id || !isLive(state.activeCall)) {
+    return;
+  }
+
+  refreshActiveCall();
+}, 2500);
 
 (async function boot() {
   try {

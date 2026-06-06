@@ -632,7 +632,13 @@ app.MapPost("/api/calls/{id:guid}/end", async (
         return Results.NotFound();
     }
 
-    await twilio.EndCallAsync(call, cancellationToken);
+    try
+    {
+        await twilio.EndCallAsync(call, cancellationToken);
+    }
+    catch (TwilioApiException exception) when (IsAlreadyEndedTwilioError(exception))
+    {
+    }
     costRefresh.Queue(call.Id);
     return Results.Ok(call);
 });
@@ -1032,6 +1038,14 @@ static bool ShouldClearCallError(CallStatus status) => status is
     CallStatus.Ringing or
     CallStatus.InProgress or
     CallStatus.Completed;
+
+static bool IsAlreadyEndedTwilioError(TwilioApiException exception) =>
+    (exception.StatusCode == StatusCodes.Status400BadRequest ||
+     exception.StatusCode == StatusCodes.Status404NotFound) &&
+    (exception.Message.Contains("completed", StringComparison.OrdinalIgnoreCase) ||
+     exception.Message.Contains("not in-progress", StringComparison.OrdinalIgnoreCase) ||
+     exception.Message.Contains("not found", StringComparison.OrdinalIgnoreCase) ||
+     exception.TwilioCode is 20001 or 21220);
 
 static bool IsLiveStatus(CallStatus status) => status is
     CallStatus.Created or
