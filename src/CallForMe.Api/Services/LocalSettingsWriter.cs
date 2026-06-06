@@ -1,0 +1,108 @@
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using CallForMe.Api.Options;
+using Microsoft.Extensions.Options;
+
+namespace CallForMe.Api.Services;
+
+public sealed class LocalSettingsWriter
+{
+    private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
+
+    private readonly string _path;
+    private readonly IOptionsMonitor<AiOptions> _aiOptions;
+    private readonly IOptionsMonitor<TwilioOptions> _twilioOptions;
+
+    public LocalSettingsWriter(
+        IHostEnvironment environment,
+        IOptionsMonitor<AiOptions> aiOptions,
+        IOptionsMonitor<TwilioOptions> twilioOptions)
+    {
+        _path = Path.Combine(environment.ContentRootPath, "appsettings.Local.json");
+        _aiOptions = aiOptions;
+        _twilioOptions = twilioOptions;
+    }
+
+    public async Task SaveOpenAiAsync(string apiKey, string? model, CancellationToken cancellationToken)
+    {
+        var root = await LoadAsync(cancellationToken);
+        var current = _aiOptions.CurrentValue;
+        var ai = GetSection(root, AiOptions.SectionName);
+        ai["Enabled"] = true;
+        ai["ApiKey"] = apiKey;
+        ai["Model"] = string.IsNullOrWhiteSpace(model) ? current.Model : model;
+        ai["BaseUrl"] = string.IsNullOrWhiteSpace(current.BaseUrl) ? "https://api.openai.com/v1" : current.BaseUrl;
+        await SaveAsync(root, cancellationToken);
+    }
+
+    public async Task SaveTwilioAsync(
+        string accountSid,
+        string authToken,
+        string fromNumber,
+        string publicBaseUrl,
+        CancellationToken cancellationToken)
+    {
+        var root = await LoadAsync(cancellationToken);
+        var current = _twilioOptions.CurrentValue;
+        var credentialsChanged =
+            !string.Equals(accountSid, current.AccountSid, StringComparison.Ordinal) ||
+            !string.Equals(authToken, current.AuthToken, StringComparison.Ordinal);
+        var twilio = GetSection(root, TwilioOptions.SectionName);
+        twilio["Enabled"] = true;
+        twilio["AccountSid"] = accountSid;
+        twilio["AuthToken"] = authToken;
+        twilio["FromNumber"] = fromNumber;
+        twilio["PublicBaseUrl"] = publicBaseUrl;
+        twilio["ValidateSignatures"] = current.ValidateSignatures;
+        if (credentialsChanged)
+        {
+            twilio["CredentialsValid"] = null;
+            twilio["CredentialsError"] = null;
+            twilio["CredentialsCheckedAt"] = null;
+        }
+        await SaveAsync(root, cancellationToken);
+    }
+
+    public async Task SaveTwilioCredentialCheckAsync(
+        bool isValid,
+        string? error,
+        CancellationToken cancellationToken)
+    {
+        var root = await LoadAsync(cancellationToken);
+        var twilio = GetSection(root, TwilioOptions.SectionName);
+        twilio["CredentialsValid"] = isValid;
+        twilio["CredentialsError"] = string.IsNullOrWhiteSpace(error) ? null : error;
+        twilio["CredentialsCheckedAt"] = DateTimeOffset.UtcNow;
+        await SaveAsync(root, cancellationToken);
+    }
+
+    private async Task<JsonObject> LoadAsync(CancellationToken cancellationToken)
+    {
+        if (!File.Exists(_path))
+        {
+            return new JsonObject();
+        }
+
+        await using var stream = File.OpenRead(_path);
+        var node = await JsonNode.ParseAsync(stream, cancellationToken: cancellationToken);
+        return node as JsonObject ?? new JsonObject();
+    }
+
+    private async Task SaveAsync(JsonObject root, CancellationToken cancellationToken)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
+        await File.WriteAllTextAsync(_path, root.ToJsonString(JsonOptions), cancellationToken);
+    }
+
+    private static JsonObject GetSection(JsonObject root, string name)
+    {
+        if (root[name] is JsonObject section)
+        {
+            return section;
+        }
+
+        section = new JsonObject();
+        root[name] = section;
+        return section;
+    }
+}

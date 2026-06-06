@@ -1,0 +1,46 @@
+@host = http://localhost:5226
+@callId = replace-with-created-call-id
+
+GET {{host}}/api
+Accept: application/json
+
+###
+
+POST {{host}}/api/calls
+Content-Type: application/json
+
+{
+  "phoneNumber": "+48123456789",
+  "prompt": "Узнай свободное время для записи к врачу",
+  "language": "en-US",
+  "userLanguage": "ru-RU",
+  "autoPilot": false
+}
+
+###
+
+GET {{host}}/api/calls/{{callId}}
+Accept: application/json
+
+###
+
+POST {{host}}/api/calls/{{callId}}/messages
+Content-Type: application/json
+
+{
+  "text": "Подскажите, пожалуйста, какие варианты доступны завтра утром?",
+  "spokenText": "Please tell me what options are available tomorrow morning."
+}
+
+###
+
+POST {{host}}/api/calls/{{callId}}/autopilot
+Content-Type: application/json
+
+{
+  "enabled": true
+}
+
+###
+
+POST {{host}}/api/calls/{{callId}}/end

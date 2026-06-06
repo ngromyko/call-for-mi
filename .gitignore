@@ -1,0 +1,10 @@
+**/bin/
+**/obj/
+**/data/
+.vs/
+publish/
+*.log
+*.tmp
+*.user
+.env
+appsettings.Local.json
