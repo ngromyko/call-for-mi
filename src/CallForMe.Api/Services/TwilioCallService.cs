@@ -348,7 +348,7 @@ public static class TwimlFactory
             new XElement("Connect",
                 new XElement("ConversationRelay",
                     new XAttribute("url", relayUrl),
-                    new XAttribute("language", call.Language),
+                    new XAttribute("language", TwilioRelayLanguage(call.Language)),
                     new XAttribute("welcomeGreeting", WelcomeGreeting(call.Language)),
                     new XElement("Parameter",
                         new XAttribute("name", "callId"),
@@ -369,6 +369,12 @@ public static class TwimlFactory
         "cs" => "Dobrý den. Jsem asistent AI a volám jménem uživatele. Hovor může být přepsán.",
         _ => "Hello. I am an AI assistant calling on behalf of a user. This conversation may be transcribed."
     };
+
+    private static string TwilioRelayLanguage(string language) =>
+        string.IsNullOrWhiteSpace(language) ||
+        language.Equals("auto", StringComparison.OrdinalIgnoreCase)
+            ? "en-US"
+            : language;
 }
 
 public static class TwilioStatusMapper

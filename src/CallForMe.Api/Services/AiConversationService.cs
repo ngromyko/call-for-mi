@@ -45,11 +45,15 @@ public sealed class AiConversationService
 
         var transcript = string.Join("\n", call.Transcript.TakeLast(20).Select(entry =>
             $"{entry.Speaker}: {entry.Text}"));
+        var callLanguage = IsAutoLanguage(call.Language)
+            ? "the remote party's language, detected from their speech"
+            : call.Language;
         var input = $$"""
             Goal for this phone call:
             {{call.Prompt}}
 
-            Language: {{call.Language}}
+            Call language: {{callLanguage}}
+            User language: {{call.UserLanguage}}
 
             Transcript:
             {{transcript}}
@@ -58,6 +62,7 @@ public sealed class AiConversationService
 
             Return only valid compact JSON:
             {"remoteTranslation":"latest remote message translated into the user's language","reply":"best short answer in the call language","replyTranslation":"reply translated into the user's language","suggestions":[{"text":"option in user language","spokenText":"same option in call language"}]}
+            If the call language is auto, detect the remote party's language from the latest remote speech and reply in that same language.
             Keep the reply natural and under 35 words. Never invent facts, commitments, prices, or personal data.
             If uncertain, ask a clarifying question.
             """;
@@ -67,7 +72,7 @@ public sealed class AiConversationService
         request.Content = new StringContent(JsonSerializer.Serialize(new
         {
             model = options.Model,
-            instructions = $"You operate a disclosed AI phone assistant. Speak {call.Language}; translate every remote message and assistant reply for a user who reads {call.UserLanguage}. Follow the user's goal and stay concise.",
+            instructions = $"You operate a disclosed AI phone assistant. Speak {callLanguage}; translate every remote message and assistant reply for a user who reads {call.UserLanguage}. Follow the user's goal and stay concise.",
             input,
             max_output_tokens = 300
         }), Encoding.UTF8, "application/json");
@@ -284,5 +289,9 @@ public sealed class AiConversationService
 
         return text;
     }
+
+    private static bool IsAutoLanguage(string? language) =>
+        string.IsNullOrWhiteSpace(language) ||
+        language.Equals("auto", StringComparison.OrdinalIgnoreCase);
 
 }

@@ -516,7 +516,7 @@ app.MapPost("/api/calls", async (
         DisplayName = CreateDisplayName(request.DisplayName, request.Prompt),
         PhoneNumber = request.PhoneNumber.Trim(),
         Prompt = request.Prompt.Trim(),
-        Language = string.IsNullOrWhiteSpace(request.Language) ? "en-US" : request.Language.Trim(),
+        Language = NormalizeCallLanguage(request.Language),
         UserLanguage = string.IsNullOrWhiteSpace(request.UserLanguage) ? "ru-RU" : request.UserLanguage.Trim(),
         AutoPilot = request.AutoPilot,
         RecordingConsentConfirmed = request.RecordingConsentConfirmed,
@@ -1013,6 +1013,17 @@ static string KeepCurrentIfBlankOrMasked(string? incoming, string current)
     }
 
     return incoming;
+}
+
+static string NormalizeCallLanguage(string? language)
+{
+    if (string.IsNullOrWhiteSpace(language) ||
+        language.Equals("auto", StringComparison.OrdinalIgnoreCase))
+    {
+        return "auto";
+    }
+
+    return language.Trim();
 }
 
 static bool ShouldClearCallError(CallStatus status) => status is

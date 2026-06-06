@@ -14,6 +14,7 @@ const state = {
 };
 
 const languages = {
+  "auto": "Авто",
   "ru-RU": "Русский",
   "uk-UA": "Українська",
   "en-US": "English",
@@ -67,6 +68,10 @@ async function api(url, options = {}) {
 
 function languageName(code) {
   return languages[code] || code || "Авто";
+}
+
+function isAutoLanguage(code) {
+  return !code || code === "auto";
 }
 
 function formatPhone(phone) {
@@ -457,7 +462,9 @@ function renderHeader() {
   $("#translationStatusText").textContent = call
     ? (remoteSpeaking
       ? "Собеседник говорит. ИИ готовит варианты ответа."
-      : call.userLanguage === call.language
+      : isAutoLanguage(call.language)
+        ? `Автоопределение языка → ${languageName(call.userLanguage)}`
+        : call.userLanguage === call.language
         ? `Без перевода: ${languageName(call.userLanguage)}`
         : `Перевод: ${languageName(call.userLanguage)} → ${languageName(call.language)}`)
     : "Ответы и перевод появятся только после старта звонка";
@@ -1213,7 +1220,7 @@ $("#newCallForm").addEventListener("submit", async event => {
     displayName: String(data.get("displayName") || ""),
     prompt: String(data.get("prompt") || ""),
     userLanguage: String(data.get("userLanguage") || ""),
-    language: String(data.get("language") || ""),
+    language: String(data.get("language") || "auto"),
     autoPilot: data.get("autoPilot") === "on"
   };
   const localErrors = {};
