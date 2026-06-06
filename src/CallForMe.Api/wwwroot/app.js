@@ -391,11 +391,25 @@ async function startLiveUpdates() {
 
 function renderSetupState() {
   const ready = state.config.readyForRealCalls;
-  $("#setupWarning").hidden = ready;
+  const adminAuthenticated = !!state.config.adminAuthenticated;
+  $("#setupWarning").hidden = ready || !adminAuthenticated;
   $("#newCallButton").disabled = !ready;
   $("#newCallButton").title = ready ? "" : (state.config.setupReason || "Сначала завершите настройки");
   $("#mobileNewCallButton").disabled = !ready;
   $("#mobileNewCallButton").title = ready ? "" : (state.config.setupReason || "Сначала завершите настройки");
+  const settingsSidebarButton = $("#settingsSidebarButton");
+  const mobileSettingsNav = $("#mobileSettingsNav");
+  if (settingsSidebarButton) {
+    settingsSidebarButton.hidden = false;
+    settingsSidebarButton.querySelector("span:last-child").textContent = adminAuthenticated ? "Настройки" : "Админ";
+  }
+  if (mobileSettingsNav) {
+    mobileSettingsNav.hidden = false;
+    const label = mobileSettingsNav.querySelector("span:last-child");
+    if (label) {
+      label.textContent = adminAuthenticated ? "Настройки" : "Админ";
+    }
+  }
   const setupText = $("#setupWarning p");
   if (setupText) setupText.textContent = state.config.setupReason || "Проверьте настройки перед звонком.";
 }
@@ -559,8 +573,55 @@ function renderHeader() {
         : `Перевод: ${languageName(call.userLanguage)} → ${languageName(call.language)}`)
     : "Ответы и перевод появятся только после старта звонка";
   $("#messageInput").placeholder = call
-    ? `Напишите ответ: ${languageName(call.userLanguage)}`
+    ? (live ? `Напишите ответ: ${languageName(call.userLanguage)}` : "Звонок уже завершён")
     : "Сначала начните реальный звонок";
+
+  renderReplyArea(call, live, status);
+}
+
+function renderReplyArea(call, live, status) {
+  const translationStatus = document.querySelector(".translation-status");
+  const suggestions = $("#suggestions");
+  const messageForm = $("#messageForm");
+  const actionState = $("#callActionState");
+
+  if (translationStatus) {
+    translationStatus.hidden = !live;
+  }
+
+  if (suggestions) {
+    suggestions.hidden = !live;
+  }
+
+  if (messageForm) {
+    messageForm.hidden = !live;
+  }
+
+  if (!actionState) {
+    return;
+  }
+
+  const showActionState = !!call && !live;
+  actionState.hidden = !showActionState;
+
+  if (!showActionState) {
+    return;
+  }
+
+  const title = $("#callActionStateTitle");
+  const text = $("#callActionStateText");
+  const icon = $("#callActionStateIcon");
+
+  if (isFailedCall(call) || ["Busy", "NoAnswer", "Canceled"].includes(call?.status)) {
+    if (icon) icon.textContent = status.icon || "error";
+    if (title) title.textContent = status.text || "Звонок завершён";
+    if (text) text.textContent = "Отвечать уже нельзя. Откройте другой звонок в истории или начните новый.";
+    return;
+  }
+
+  if (icon) icon.textContent = "check_circle";
+  if (title) title.textContent = "Звонок завершён";
+  if (text) text.textContent = "Разговор уже закончился. Можно посмотреть итог выше или начать новый звонок.";
 }
 
 function messageMarkup(entry) {
@@ -628,10 +689,13 @@ function renderPinnedSummary(call, transcript) {
 function renderConversation() {
   const call = state.activeCall;
   const transcript = call?.transcript || [];
+  const adminAuthenticated = !!state.config.adminAuthenticated;
   const emptyTitle = state.config.readyForRealCalls ? "Готов к реальному звонку" : "Реальный режим требует настройки";
   const emptyText = state.config.readyForRealCalls
     ? "Здесь появится разговор после старта. Пока звонок не начат, никакой линии нет."
-    : `${state.config.setupReason || "Проверьте настройки."} Откройте «Настройки» слева внизу.`;
+    : adminAuthenticated
+      ? `${state.config.setupReason || "Проверьте настройки."} Откройте «Настройки» слева внизу.`
+      : `${state.config.setupReason || "Сервис ещё не настроен."} Настройки доступны только администратору.`;
 
   renderPinnedSummary(call, transcript);
 
@@ -1153,7 +1217,9 @@ function openNewCallDialog() {
   }
 
   if (!state.config.readyForRealCalls) {
-    showToast(state.config.setupReason || "Завершите настройки перед реальным звонком");
+    showToast(state.config.adminAuthenticated
+      ? (state.config.setupReason || "Завершите настройки перед реальным звонком")
+      : "Сервис ещё не настроен. Настройки доступны только администратору.");
     return;
   }
   clearNewCallErrors();

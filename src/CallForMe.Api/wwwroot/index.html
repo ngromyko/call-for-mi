@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,300,0,0" rel="stylesheet">
-  <link rel="stylesheet" href="/styles.css?v=mobile-tabs-1">
+  <link rel="stylesheet" href="/styles.css?v=mobile-fit-2">
 </head>
 <body class="mobile-view-call">
   <div class="app-shell">
@@ -83,7 +83,7 @@
       <div class="sidebar-bottom">
         <button class="help-button" id="settingsSidebarButton">
           <span class="material-symbols-rounded">tune</span>
-          Настройки
+          Админ
         </button>
         <button class="help-button" id="helpButton">
           <span class="material-symbols-rounded">help</span>
@@ -172,6 +172,13 @@
               Завершить
             </button>
           </form>
+          <div class="call-action-state" id="callActionState" hidden>
+            <span class="material-symbols-rounded" id="callActionStateIcon">check_circle</span>
+            <div>
+              <strong id="callActionStateTitle">Звонок завершён</strong>
+              <span id="callActionStateText">Можно посмотреть итог разговора или начать новый звонок.</span>
+            </div>
+          </div>
         </div>
       </section>
     </main>
@@ -191,7 +198,7 @@
     </button>
     <button type="button" class="mobile-nav-button" id="mobileSettingsNav">
       <span class="material-symbols-rounded">tune</span>
-      <span>Настройки</span>
+      <span>Админ</span>
     </button>
   </nav>
 
