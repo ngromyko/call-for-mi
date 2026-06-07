@@ -77,27 +77,31 @@ export function TopupPanel({ config, onRefreshTon, onCopyAddress, onCopyComment 
       <div className="ton-payment-box" hidden={!showDetails || !enabled}>
         <strong>{isUsdt ? t("topup.usdtDetails") : t("topup.tonDetails")}</strong>
         <span>{text}</span>
-        <div className="payment-value-card">
-          <span>{t("topup.walletAddress")}</span>
-          <code>{walletAddress}</code>
-          <button type="button" className="secondary-button" onClick={() => onCopyAddress(walletAddress)}>
-            <Icon>content_copy</Icon>
-            {t("topup.copyAddress")}
-          </button>
-        </div>
-        <div className="payment-value-card">
-          <span>{t("topup.comment")}</span>
-          <button type="button" className="copy-value-button" onClick={() => onCopyComment(comment)}>
-            <code>{comment}</code>
-            <Icon>content_copy</Icon>
-          </button>
-        </div>
-        <div className="ton-qr-box">
-          <img
-            src={isUsdt ? `/api/usdt/qr?amount=${qrAmount}` : `/api/ton/qr?amount=${qrAmount}`}
-            alt={isUsdt ? t("topup.qrUsdt") : t("topup.qrTon")}
-            loading="lazy"
-          />
+        <div className="payment-details-layout">
+          <div className="ton-qr-box">
+            <img
+              src={isUsdt ? `/api/usdt/qr?amount=${qrAmount}` : `/api/ton/qr?amount=${qrAmount}`}
+              alt={isUsdt ? t("topup.qrUsdt") : t("topup.qrTon")}
+              loading="lazy"
+            />
+          </div>
+          <div className="payment-details-values">
+            <div className="payment-value-card">
+              <span>{t("topup.walletAddress")}</span>
+              <code>{walletAddress}</code>
+              <button type="button" className="secondary-button" onClick={() => onCopyAddress(walletAddress)}>
+                <Icon>content_copy</Icon>
+                {t("topup.copyAddress")}
+              </button>
+            </div>
+            <div className="payment-value-card">
+              <span>{t("topup.comment")}</span>
+              <button type="button" className="copy-value-button" onClick={() => onCopyComment(comment)}>
+                <code>{comment}</code>
+                <Icon>content_copy</Icon>
+              </button>
+            </div>
+          </div>
         </div>
         {canOpenWallet ? (
           <a

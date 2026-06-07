@@ -593,6 +593,17 @@ button { color: inherit; cursor: pointer; }
   width: 100%;
   min-height: 34px;
 }
+.payment-details-layout {
+  display: grid;
+  grid-template-columns: minmax(180px, 220px) minmax(0, 1fr);
+  align-items: stretch;
+  gap: 12px;
+}
+.payment-details-values {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+}
 .copy-value-button,
 .inline-copy-button {
   width: 100%;
@@ -637,7 +648,7 @@ button { color: inherit; cursor: pointer; }
 }
 .ton-qr-box img {
   display: block;
-  width: min(100%, 190px);
+  width: min(100%, 210px);
   aspect-ratio: 1;
 }
 .ton-payment-box .primary-button,
@@ -1337,6 +1348,51 @@ input:checked + .toggle-visual span { transform: translateX(16px); background: w
   font-size: 12px;
   line-height: 1.6;
 }
+.admin-tabs {
+  display: flex;
+  gap: 8px;
+  margin: 0 0 18px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 15px;
+  background: rgba(255,255,255,.025);
+  overflow-x: auto;
+}
+.admin-tabs button {
+  flex: 1 0 auto;
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 14px;
+  border: 1px solid transparent;
+  border-radius: 11px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+.admin-tabs button:hover {
+  border-color: var(--line);
+  color: var(--text);
+  background: rgba(255,255,255,.035);
+}
+.admin-tabs button.active {
+  border-color: rgba(143,112,188,.55);
+  background: var(--violet-soft);
+  color: #eadcff;
+}
+.admin-tabs .material-symbols-rounded {
+  font-size: 18px;
+}
+.admin-tab-panel[hidden] {
+  display: none;
+}
+.admin-tab-panel {
+  min-width: 0;
+}
 .settings-section-heading h3 {
   margin: 0 0 5px;
   font-size: 15px;
@@ -1485,6 +1541,14 @@ input:checked + .toggle-visual span { transform: translateX(16px); background: w
   color: #f0d1a0;
 }
 .settings-section { margin-top: 16px; }
+.admin-tab-panel > .settings-section:first-child,
+.admin-tab-panel > .admin-users-section:first-child,
+.admin-tab-panel > .settings-status:first-child {
+  margin-top: 0;
+}
+.admin-commands-panel {
+  margin-top: 0;
+}
 .settings-section h3 { margin: 0 0 9px; font-size: 13px; }
 .settings-section p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.6; }
 .settings-form {
@@ -1819,6 +1883,16 @@ input:checked + .toggle-visual span { transform: translateX(16px); background: w
   .settings-section-heading {
     align-items: stretch;
     flex-direction: column;
+  }
+  .admin-tabs {
+    margin-bottom: 14px;
+    padding: 5px;
+  }
+  .admin-tabs button {
+    flex: 0 0 auto;
+    min-height: 38px;
+    padding-inline: 11px;
+    font-size: 11px;
   }
   .settings-section-heading .secondary-button {
     width: 100%;
@@ -2518,6 +2592,12 @@ input:checked + .toggle-visual span { transform: translateX(16px); background: w
   }
   .language-row > .material-symbols-rounded {
     display: none;
+  }
+  .payment-details-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .ton-qr-box img {
+    width: min(100%, 220px);
   }
   .modal-toggle {
     align-items: flex-start;
