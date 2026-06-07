@@ -264,9 +264,9 @@ public sealed class SqliteCallRepository : ICallRepository
             return;
         }
 
-        var legacyPath = Path.IsPathRooted(options.FilePath)
-            ? options.FilePath
-            : Path.Combine(environment.ContentRootPath, options.FilePath);
+        var legacyPath = Path.IsPathRooted(options.LegacyCallsJsonPath)
+            ? options.LegacyCallsJsonPath
+            : Path.Combine(environment.ContentRootPath, options.LegacyCallsJsonPath);
         if (!File.Exists(legacyPath))
         {
             return;

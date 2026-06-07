@@ -84,6 +84,7 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 builder.Services.AddHttpClient<TwilioCallService>();
 builder.Services.AddHttpClient<AiConversationService>();
 builder.Services.AddHttpClient<TonApiClient>();
+builder.Services.AddHttpClient<TonPriceClient>();
 builder.Services.AddSingleton<TwilioRequestValidator>();
 builder.Services.AddSingleton<SqliteDatabase>();
 builder.Services.AddSingleton<ICallRepository, SqliteCallRepository>();
@@ -282,9 +283,11 @@ app.MapGet("/api/ton/deposits", async (
     return Results.Ok(await billing.ListTonPaymentsAsync(BalanceClientId(userId.Value), cancellationToken));
 });
 
-app.MapGet("/api/ton/deposit-info", (
+app.MapGet("/api/ton/deposit-info", async (
     HttpContext context,
-    IOptionsMonitor<TonPaymentsOptions> ton) =>
+    IOptionsMonitor<TonPaymentsOptions> ton,
+    TonPriceClient tonPrice,
+    CancellationToken cancellationToken) =>
 {
     var userId = CurrentUserId(context);
     if (userId is null)
@@ -295,6 +298,7 @@ app.MapGet("/api/ton/deposit-info", (
     var options = ton.CurrentValue;
     var clientId = BalanceClientId(userId.Value);
     var comment = TonDepositComment.FromClientId(clientId);
+    var creditsPerTon = await tonPrice.GetTonUsdPriceAsync(options.CreditsPerTon, cancellationToken);
     if (!options.IsConfigured)
     {
         return Results.Ok(new
@@ -302,7 +306,7 @@ app.MapGet("/api/ton/deposit-info", (
             enabled = false,
             walletAddress = "",
             comment,
-            creditsPerTon = options.CreditsPerTon,
+            creditsPerTon,
             minTonAmount = options.MinTonAmount,
             paymentLink = ""
         });
@@ -314,7 +318,7 @@ app.MapGet("/api/ton/deposit-info", (
         enabled = true,
         walletAddress = wallet,
         comment,
-        creditsPerTon = options.CreditsPerTon,
+        creditsPerTon,
         minTonAmount = options.MinTonAmount,
         paymentLink = CreateTonTransferLink(wallet, options.MinTonAmount, comment)
     });
@@ -339,21 +343,28 @@ app.MapGet("/api/usdt/deposit-info", (
         {
             enabled = false,
             walletAddress = "",
-            network = string.IsNullOrWhiteSpace(options.Network) ? "TRC20" : options.Network.Trim(),
+            network = string.IsNullOrWhiteSpace(options.WalletAddress) ? "TON" : NormalizeUsdtNetwork(options.Network),
             comment,
             creditsPerUsdt = options.CreditsPerUsdt,
-            minUsdtAmount = options.MinUsdtAmount
+            minUsdtAmount = options.MinUsdtAmount,
+            jettonMasterAddress = NormalizeUsdtJettonMaster(options.JettonMasterAddress),
+            paymentLink = ""
         });
     }
 
+    var wallet = options.WalletAddress.Trim();
+    var network = NormalizeUsdtNetwork(options.Network);
+    var jettonMaster = NormalizeUsdtJettonMaster(options.JettonMasterAddress);
     return Results.Ok(new
     {
         enabled = true,
-        walletAddress = options.WalletAddress.Trim(),
-        network = string.IsNullOrWhiteSpace(options.Network) ? "TRC20" : options.Network.Trim(),
+        walletAddress = wallet,
+        network,
         comment,
         creditsPerUsdt = options.CreditsPerUsdt,
-        minUsdtAmount = options.MinUsdtAmount
+        minUsdtAmount = options.MinUsdtAmount,
+        jettonMasterAddress = jettonMaster,
+        paymentLink = CreateUsdtTransferLink(wallet, network, options.MinUsdtAmount, comment, jettonMaster)
     });
 });
 
@@ -444,7 +455,10 @@ app.MapGet("/api/usdt/qr", (
 
     var clientId = BalanceClientId(userId.Value);
     var comment = TonDepositComment.FromClientId(clientId);
-    var paymentText = CreateUsdtPaymentText(options.WalletAddress.Trim(), options.Network, usdtAmount, comment);
+    var network = NormalizeUsdtNetwork(options.Network);
+    var paymentText = UsdtPaymentsOptions.IsTonNetworkValue(network)
+        ? CreateUsdtTransferLink(options.WalletAddress.Trim(), network, usdtAmount, comment, NormalizeUsdtJettonMaster(options.JettonMasterAddress))
+        : CreateUsdtPaymentText(options.WalletAddress.Trim(), network, usdtAmount, comment);
     using var generator = new QRCodeGenerator();
     using var data = generator.CreateQrCode(paymentText, QRCodeGenerator.ECCLevel.Q);
     var qrCode = new PngByteQRCode(data);
@@ -562,9 +576,10 @@ app.MapGet("/api/config", (HttpRequest request, IOptionsMonitor<TwilioOptions> t
         {
             enabled = usdtOptions.IsConfigured,
             walletAddress = usdtOptions.WalletAddress,
-            network = usdtOptions.Network,
+            network = string.IsNullOrWhiteSpace(usdtOptions.WalletAddress) ? "TON" : NormalizeUsdtNetwork(usdtOptions.Network),
             creditsPerUsdt = usdtOptions.CreditsPerUsdt,
-            minUsdtAmount = usdtOptions.MinUsdtAmount
+            minUsdtAmount = usdtOptions.MinUsdtAmount,
+            jettonMasterAddress = NormalizeUsdtJettonMaster(usdtOptions.JettonMasterAddress)
         }
     });
 });
@@ -726,16 +741,20 @@ app.MapPost("/api/config/usdt", async (
     }
 
     var wallet = request.WalletAddress?.Trim() ?? "";
-    var network = request.Network?.Trim() ?? "";
+    var network = string.IsNullOrWhiteSpace(request.Network) ? "TON" : request.Network.Trim();
     var errors = new Dictionary<string, string[]>();
-    if (!UsdtPaymentsOptions.IsLikelyWalletAddress(wallet))
+    if (UsdtPaymentsOptions.IsTonNetworkValue(network) && !TonPaymentsOptions.IsLikelyTonAddress(wallet))
+    {
+        errors["walletAddress"] = ["Введите TON wallet address для USDT on TON."];
+    }
+    else if (!UsdtPaymentsOptions.IsTonNetworkValue(network) && !UsdtPaymentsOptions.IsLikelyWalletAddress(wallet))
     {
         errors["walletAddress"] = ["Введите USDT wallet address."];
     }
 
     if (string.IsNullOrWhiteSpace(network) || network.Length > 32)
     {
-        errors["network"] = ["Введите сеть USDT, например TRC20 или ERC20."];
+        errors["network"] = ["Введите сеть USDT, например TON."];
     }
 
     if (request.CreditsPerUsdt <= 0)
@@ -1202,6 +1221,7 @@ app.MapGet("/admin", () => File.Exists(adminHtmlPath)
         title: "Admin page is unavailable",
         detail: "Не найден файл wwwroot/index.html.",
         statusCode: StatusCodes.Status500InternalServerError));
+app.MapGet("/admin.html", () => Results.Redirect("/admin", permanent: false));
 app.MapGet("/admin/{*path}", () => File.Exists(adminHtmlPath)
     ? Results.File(adminHtmlPath, "text/html")
     : Results.Problem(
@@ -1291,7 +1311,18 @@ static bool IsValidClientId(string? clientId) =>
 static string CreateTonTransferLink(string walletAddress, decimal tonAmount, string comment)
 {
     var nanotons = decimal.ToInt64(decimal.Round(tonAmount * 1_000_000_000m, 0));
-    return $"ton://transfer/{Uri.EscapeDataString(walletAddress)}?amount={nanotons}&text={Uri.EscapeDataString(comment)}";
+    return $"https://app.tonkeeper.com/transfer/{Uri.EscapeDataString(walletAddress)}?amount={nanotons}&text={Uri.EscapeDataString(comment)}";
+}
+
+static string CreateUsdtTransferLink(string walletAddress, string network, decimal usdtAmount, string comment, string jettonMasterAddress)
+{
+    if (!UsdtPaymentsOptions.IsTonNetworkValue(network))
+    {
+        return "";
+    }
+
+    var micros = decimal.ToInt64(decimal.Round(usdtAmount * 1_000_000m, 0));
+    return $"https://app.tonkeeper.com/transfer/{Uri.EscapeDataString(walletAddress)}?jetton={Uri.EscapeDataString(jettonMasterAddress)}&amount={micros}&text={Uri.EscapeDataString(comment)}";
 }
 
 static string CreateUsdtPaymentText(string walletAddress, string network, decimal usdtAmount, string comment)
@@ -1305,6 +1336,14 @@ static string CreateUsdtPaymentText(string walletAddress, string network, decima
         $"Comment: {comment}"
     });
 }
+
+static string NormalizeUsdtNetwork(string? network) =>
+    UsdtPaymentsOptions.IsTonNetworkValue(network) ? "TON" : network!.Trim();
+
+static string NormalizeUsdtJettonMaster(string? jettonMasterAddress) =>
+    string.IsNullOrWhiteSpace(jettonMasterAddress)
+        ? UsdtPaymentsOptions.TetherUsdtTonJettonMaster
+        : jettonMasterAddress.Trim();
 
 static Dictionary<string, string[]> ValidateRedeemPromoCode(RedeemPromoCodeRequest request)
 {

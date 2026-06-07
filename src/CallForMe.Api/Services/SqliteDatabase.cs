@@ -117,6 +117,7 @@ public sealed class SqliteDatabase
                 comment TEXT NOT NULL,
                 wallet_address TEXT NOT NULL,
                 sender_address TEXT NULL,
+                asset_currency TEXT NULL,
                 payment_link TEXT NULL,
                 ton_amount TEXT NOT NULL,
                 credits_amount TEXT NOT NULL,
@@ -145,7 +146,12 @@ public sealed class SqliteDatabase
         AddColumnIfMissing(connection, "calls", "usage_json", "TEXT NULL");
         AddColumnIfMissing(connection, "ton_payments", "external_id", "TEXT NULL");
         AddColumnIfMissing(connection, "ton_payments", "sender_address", "TEXT NULL");
+        AddColumnIfMissing(connection, "ton_payments", "asset_currency", "TEXT NULL");
+        AddColumnIfMissing(connection, "ton_payments", "status", "TEXT NULL");
         AddColumnIfMissing(connection, "ton_payments", "received_at", "TEXT NULL");
+        AddColumnIfMissing(connection, "ton_payments", "submitted_at", "TEXT NULL");
+        AddColumnIfMissing(connection, "ton_payments", "confirmed_at", "TEXT NULL");
+        AddColumnIfMissing(connection, "ton_payments", "confirmed_by", "TEXT NULL");
 
         using var tonIndex = connection.CreateCommand();
         tonIndex.CommandText = "CREATE UNIQUE INDEX IF NOT EXISTS ux_ton_payments_external_id ON ton_payments(external_id)";

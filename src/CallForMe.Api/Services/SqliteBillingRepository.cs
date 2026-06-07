@@ -6,6 +6,7 @@ namespace CallForMe.Api.Services;
 
 public sealed class SqliteBillingRepository : IBillingRepository
 {
+    private static readonly TimeSpan TonConfirmationWindow = TimeSpan.FromSeconds(45);
     private readonly SqliteDatabase _database;
 
     public SqliteBillingRepository(SqliteDatabase database)
@@ -186,8 +187,8 @@ public sealed class SqliteBillingRepository : IBillingRepository
         await using var connection = _database.OpenConnection();
         await using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT id, client_id, external_id, comment, wallet_address, sender_address,
-                   ton_amount, credits_amount, created_at, received_at
+            SELECT id, client_id, external_id, comment, wallet_address, sender_address, asset_currency,
+                   ton_amount, credits_amount, COALESCE(status, 'Confirmed') AS status, created_at, received_at
             FROM ton_payments
             """;
         if (!string.IsNullOrWhiteSpace(clientId))
@@ -213,6 +214,7 @@ public sealed class SqliteBillingRepository : IBillingRepository
         string comment,
         string walletAddress,
         string? senderAddress,
+        string currency,
         decimal tonAmount,
         decimal creditsAmount,
         DateTimeOffset receivedAt,
@@ -223,14 +225,28 @@ public sealed class SqliteBillingRepository : IBillingRepository
         var existing = await GetTonPaymentByExternalIdAsync(connection, externalId, cancellationToken, (SqliteTransaction)transaction);
         if (existing is not null)
         {
-            var currentBalance = await GetOrCreateBalanceAsync(connection, (SqliteTransaction)transaction, existing.ClientId, cancellationToken);
+            var shouldConfirm = existing.Status.Equals("Processing", StringComparison.OrdinalIgnoreCase) &&
+                IsReadyToConfirm(existing.ReceivedAt);
+            var currentBalance = shouldConfirm
+                ? await ConfirmTonPaymentAsync(connection, (SqliteTransaction)transaction, existing, cancellationToken)
+                : await GetOrCreateBalanceAsync(connection, (SqliteTransaction)transaction, existing.ClientId, cancellationToken);
+            if (shouldConfirm)
+            {
+                await transaction.CommitAsync(cancellationToken);
+                return (existing with { Status = "Confirmed" }, currentBalance, false);
+            }
+
             await transaction.RollbackAsync(cancellationToken);
             return (existing, currentBalance, false);
         }
 
         var balance = await GetOrCreateBalanceAsync(connection, (SqliteTransaction)transaction, clientId, cancellationToken);
-        var newBalance = balance.Balance + creditsAmount;
-        await UpdateBalanceAsync(connection, (SqliteTransaction)transaction, clientId, newBalance, cancellationToken);
+        var confirmed = IsReadyToConfirm(receivedAt);
+        var newBalance = confirmed ? balance.Balance + creditsAmount : balance.Balance;
+        if (confirmed)
+        {
+            await UpdateBalanceAsync(connection, (SqliteTransaction)transaction, clientId, newBalance, cancellationToken);
+        }
 
         var id = Guid.NewGuid();
         var createdAt = DateTimeOffset.UtcNow;
@@ -238,11 +254,11 @@ public sealed class SqliteBillingRepository : IBillingRepository
         insert.Transaction = (SqliteTransaction)transaction;
         insert.CommandText = """
             INSERT INTO ton_payments (
-                id, client_id, external_id, comment, wallet_address, sender_address,
+                id, client_id, external_id, comment, wallet_address, sender_address, asset_currency,
                 payment_link, ton_amount, credits_amount, status, created_at, received_at,
                 submitted_at, confirmed_at, confirmed_by)
             VALUES (
-                $id, $client_id, $external_id, $comment, $wallet_address, $sender_address,
+                $id, $client_id, $external_id, $comment, $wallet_address, $sender_address, $asset_currency,
                 $payment_link, $ton_amount, $credits_amount, $status, $created_at, $received_at,
                 NULL, $confirmed_at, NULL)
             """;
@@ -252,13 +268,14 @@ public sealed class SqliteBillingRepository : IBillingRepository
         insert.Parameters.AddWithValue("$comment", comment);
         insert.Parameters.AddWithValue("$wallet_address", walletAddress);
         insert.Parameters.AddWithValue("$sender_address", string.IsNullOrWhiteSpace(senderAddress) ? DBNull.Value : senderAddress);
+        insert.Parameters.AddWithValue("$asset_currency", JsonBillingRepository.NormalizeCurrency(currency));
         insert.Parameters.AddWithValue("$payment_link", "");
         insert.Parameters.AddWithValue("$ton_amount", DecimalToString(tonAmount));
         insert.Parameters.AddWithValue("$credits_amount", DecimalToString(creditsAmount));
-        insert.Parameters.AddWithValue("$status", "Confirmed");
+        insert.Parameters.AddWithValue("$status", confirmed ? "Confirmed" : "Processing");
         insert.Parameters.AddWithValue("$created_at", createdAt.ToString("O"));
         insert.Parameters.AddWithValue("$received_at", receivedAt.ToString("O"));
-        insert.Parameters.AddWithValue("$confirmed_at", createdAt.ToString("O"));
+        insert.Parameters.AddWithValue("$confirmed_at", confirmed ? createdAt.ToString("O") : DBNull.Value);
         await insert.ExecuteNonQueryAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
@@ -269,8 +286,10 @@ public sealed class SqliteBillingRepository : IBillingRepository
             comment,
             walletAddress,
             senderAddress,
+            JsonBillingRepository.NormalizeCurrency(currency),
             tonAmount,
             creditsAmount,
+            confirmed ? "Confirmed" : "Processing",
             createdAt,
             receivedAt);
         return (payment, new BalanceView(clientId, newBalance), true);
@@ -365,8 +384,8 @@ public sealed class SqliteBillingRepository : IBillingRepository
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
-            SELECT id, client_id, external_id, comment, wallet_address, sender_address,
-                   ton_amount, credits_amount, created_at, received_at
+            SELECT id, client_id, external_id, comment, wallet_address, sender_address, asset_currency,
+                   ton_amount, credits_amount, COALESCE(status, 'Confirmed') AS status, created_at, received_at
             FROM ton_payments
             WHERE external_id = $external_id
             """;
@@ -374,6 +393,58 @@ public sealed class SqliteBillingRepository : IBillingRepository
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         return await reader.ReadAsync(cancellationToken) ? ReadTonPaymentView(reader) : null;
+    }
+
+    private static bool IsReadyToConfirm(DateTimeOffset receivedAt) =>
+        DateTimeOffset.UtcNow - receivedAt >= TonConfirmationWindow;
+
+    private static async Task<BalanceView> ConfirmTonPaymentAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        TonPaymentView payment,
+        CancellationToken cancellationToken)
+    {
+        var balance = await GetOrCreateBalanceStaticAsync(connection, transaction, payment.ClientId, cancellationToken);
+        var newBalance = balance.Balance + payment.CreditsAmount;
+        await UpdateBalanceAsync(connection, transaction, payment.ClientId, newBalance, cancellationToken);
+
+        await using var update = connection.CreateCommand();
+        update.Transaction = transaction;
+        update.CommandText = """
+            UPDATE ton_payments
+            SET status = 'Confirmed', confirmed_at = $confirmed_at
+            WHERE external_id = $external_id AND COALESCE(status, 'Confirmed') = 'Processing'
+            """;
+        update.Parameters.AddWithValue("$confirmed_at", DateTimeOffset.UtcNow.ToString("O"));
+        update.Parameters.AddWithValue("$external_id", payment.ExternalId);
+        await update.ExecuteNonQueryAsync(cancellationToken);
+        return new BalanceView(payment.ClientId, newBalance);
+    }
+
+    private static async Task<BalanceView> GetOrCreateBalanceStaticAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        string clientId,
+        CancellationToken cancellationToken)
+    {
+        await using var select = connection.CreateCommand();
+        select.Transaction = transaction;
+        select.CommandText = "SELECT balance FROM client_balances WHERE client_id = $client_id";
+        select.Parameters.AddWithValue("$client_id", clientId);
+        var value = await select.ExecuteScalarAsync(cancellationToken);
+        if (value is not null)
+        {
+            return new BalanceView(clientId, StringToDecimal(Convert.ToString(value) ?? "0"));
+        }
+
+        await using var insert = connection.CreateCommand();
+        insert.Transaction = transaction;
+        insert.CommandText = "INSERT INTO client_balances (client_id, balance, updated_at) VALUES ($client_id, $balance, $updated_at)";
+        insert.Parameters.AddWithValue("$client_id", clientId);
+        insert.Parameters.AddWithValue("$balance", "0");
+        insert.Parameters.AddWithValue("$updated_at", DateTimeOffset.UtcNow.ToString("O"));
+        await insert.ExecuteNonQueryAsync(cancellationToken);
+        return new BalanceView(clientId, 0);
     }
 
     private static SqliteCommand PromoCodeLookupCommand(SqliteConnection connection)
@@ -412,11 +483,13 @@ public sealed class SqliteBillingRepository : IBillingRepository
         reader.GetString(reader.GetOrdinal("comment")),
         reader.GetString(reader.GetOrdinal("wallet_address")),
         reader.IsDBNull(reader.GetOrdinal("sender_address")) ? null : reader.GetString(reader.GetOrdinal("sender_address")),
+        reader.IsDBNull(reader.GetOrdinal("asset_currency")) ? "TON" : JsonBillingRepository.NormalizeCurrency(reader.GetString(reader.GetOrdinal("asset_currency"))),
         StringToDecimal(reader.GetString(reader.GetOrdinal("ton_amount"))),
         StringToDecimal(reader.GetString(reader.GetOrdinal("credits_amount"))),
+        reader.IsDBNull(reader.GetOrdinal("status")) ? "Confirmed" : reader.GetString(reader.GetOrdinal("status")),
         DateTimeOffset.Parse(reader.GetString(reader.GetOrdinal("created_at"))),
         reader.IsDBNull(reader.GetOrdinal("received_at")) ? DateTimeOffset.Parse(reader.GetString(reader.GetOrdinal("created_at"))) : DateTimeOffset.Parse(reader.GetString(reader.GetOrdinal("received_at"))));
 
-    private static string DecimalToString(decimal value) => value.ToString("0.##", CultureInfo.InvariantCulture);
+    private static string DecimalToString(decimal value) => value.ToString("0.#########", CultureInfo.InvariantCulture);
     private static decimal StringToDecimal(string value) => decimal.Parse(value, CultureInfo.InvariantCulture);
 }

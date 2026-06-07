@@ -1,6 +1,9 @@
 **/bin/
 **/obj/
 **/data/
+!src/CallForMe.Api/ClientApp/src/data/
+!src/CallForMe.Api/ClientApp/src/data/**
+**/node_modules/
 .vs/
 publish/
 deploy-*.tar.gz

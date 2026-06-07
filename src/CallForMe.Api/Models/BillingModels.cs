@@ -44,8 +44,10 @@ public sealed class TonPayment
     public required string Comment { get; set; }
     public required string WalletAddress { get; set; }
     public string? SenderAddress { get; set; }
+    public string Currency { get; set; } = "TON";
     public decimal TonAmount { get; set; }
     public decimal CreditsAmount { get; set; }
+    public string Status { get; set; } = "Confirmed";
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset ReceivedAt { get; set; } = DateTimeOffset.UtcNow;
 }
@@ -69,7 +71,9 @@ public sealed record TonPaymentView(
     string Comment,
     string WalletAddress,
     string? SenderAddress,
+    string Currency,
     decimal TonAmount,
     decimal CreditsAmount,
+    string Status,
     DateTimeOffset CreatedAt,
     DateTimeOffset ReceivedAt);

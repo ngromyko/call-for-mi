@@ -21,6 +21,7 @@ public interface IBillingRepository
         string comment,
         string walletAddress,
         string? senderAddress,
+        string currency,
         decimal tonAmount,
         decimal creditsAmount,
         DateTimeOffset receivedAt,
@@ -29,6 +30,7 @@ public interface IBillingRepository
 
 public sealed class JsonBillingRepository : IBillingRepository
 {
+    private static readonly TimeSpan TonConfirmationWindow = TimeSpan.FromSeconds(45);
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly string _path;
     private readonly JsonSerializerOptions _jsonOptions = new(JsonSerializerDefaults.Web)
@@ -254,6 +256,7 @@ public sealed class JsonBillingRepository : IBillingRepository
         string comment,
         string walletAddress,
         string? senderAddress,
+        string currency,
         decimal tonAmount,
         decimal creditsAmount,
         DateTimeOffset receivedAt,
@@ -266,9 +269,21 @@ public sealed class JsonBillingRepository : IBillingRepository
             var existing = state.TonPayments.FirstOrDefault(candidate => candidate.ExternalId == externalId);
             if (existing is not null)
             {
+                if (existing.Status.Equals("Processing", StringComparison.OrdinalIgnoreCase) &&
+                    IsReadyToConfirm(existing.ReceivedAt))
+                {
+                    existing.Status = "Confirmed";
+                    var confirmedBalance = GetOrCreateBalance(state, existing.ClientId);
+                    confirmedBalance.Balance += existing.CreditsAmount;
+                    confirmedBalance.UpdatedAt = DateTimeOffset.UtcNow;
+                    await SaveAsync(state, cancellationToken);
+                    return (ToTonPaymentView(existing), ToBalanceView(confirmedBalance), false);
+                }
+
                 return (ToTonPaymentView(existing), ToBalanceView(GetOrCreateBalance(state, existing.ClientId)), false);
             }
 
+            var confirmed = IsReadyToConfirm(receivedAt);
             var payment = new TonPayment
             {
                 ExternalId = externalId,
@@ -276,13 +291,18 @@ public sealed class JsonBillingRepository : IBillingRepository
                 Comment = comment,
                 WalletAddress = walletAddress,
                 SenderAddress = senderAddress,
+                Currency = NormalizeCurrency(currency),
                 TonAmount = tonAmount,
                 CreditsAmount = creditsAmount,
+                Status = confirmed ? "Confirmed" : "Processing",
                 ReceivedAt = receivedAt
             };
             var balance = GetOrCreateBalance(state, payment.ClientId);
-            balance.Balance += payment.CreditsAmount;
-            balance.UpdatedAt = DateTimeOffset.UtcNow;
+            if (confirmed)
+            {
+                balance.Balance += payment.CreditsAmount;
+                balance.UpdatedAt = DateTimeOffset.UtcNow;
+            }
             state.TonPayments.Add(payment);
             await SaveAsync(state, cancellationToken);
             return (ToTonPaymentView(payment), ToBalanceView(balance), true);
@@ -349,10 +369,17 @@ public sealed class JsonBillingRepository : IBillingRepository
         payment.Comment,
         payment.WalletAddress,
         payment.SenderAddress,
+        NormalizeCurrency(payment.Currency),
         payment.TonAmount,
         payment.CreditsAmount,
+        string.IsNullOrWhiteSpace(payment.Status) ? "Confirmed" : payment.Status,
         payment.CreatedAt,
         payment.ReceivedAt);
 
+    private static bool IsReadyToConfirm(DateTimeOffset receivedAt) =>
+        DateTimeOffset.UtcNow - receivedAt >= TonConfirmationWindow;
+
     public static string NormalizeCode(string code) => code.Trim().ToUpperInvariant();
+    public static string NormalizeCurrency(string? currency) =>
+        string.IsNullOrWhiteSpace(currency) ? "TON" : currency.Trim().ToUpperInvariant();
 }

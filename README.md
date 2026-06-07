@@ -15,6 +15,7 @@ language. Open `http://localhost:5226` after starting the app.
 - Keeps quick replies as separate display text and translated spoken text.
 - Publishes live updates through SignalR.
 - Persists call history, balances, and promo codes to SQLite.
+- Uses a React frontend split into components, with Russian and English UI localization.
 - Includes an admin promo-code cabinet and a promo-code balance flow.
 - Includes a small MCP stdio server so Codex/ChatGPT-style clients can call the service tools.
 - Starts only real Twilio calls; demo and simulated calls are disabled.
@@ -33,6 +34,20 @@ and health information at `/health`.
 The app stores its data in `src/CallForMe.Api/data/callforme.db` by default. On first startup after
 upgrading from the older JSON version, existing calls from `data/calls.json` are imported into
 SQLite if the `calls` table is empty.
+
+## Frontend
+
+The frontend source lives in `src/CallForMe.Api/ClientApp` and builds into `src/CallForMe.Api/wwwroot`.
+
+```powershell
+cd src/CallForMe.Api/ClientApp
+npm install
+npm run build
+```
+
+The built site loads a hashed `/assets/index-*.js` bundle; the old monolithic `wwwroot/app.js` is no longer used.
+UI localization is in `ClientApp/src/i18n/locales.js`. To add another site language, add it to
+`availableLocales` and add a matching dictionary in `messages`.
 
 If Twilio or OpenAI are not configured, the UI shows a setup screen with the missing keys. You can
 paste OpenAI and Twilio credentials directly in that screen; the app saves them to
@@ -85,6 +100,12 @@ Connect a SignalR client to `/hubs/calls`, call `SubscribeCall(callId)`, and lis
 Admin users can open settings in the UI and create promo codes with a balance amount and optional
 activation limit. Users enter a promo code from the sidebar; the balance is tied to a browser client
 id stored in local storage.
+
+TON and USDT top-ups use an admin-owned wallet address. Create or open a wallet in Tonkeeper, use
+Receive -> TON, and paste only the public address into the admin settings. Do not paste a seed phrase
+or private key into the app. For USDT on TON, use the same TON wallet address and set the network to
+`TON`; the generated QR code uses Tonkeeper transfer links and the official USDt-on-TON jetton master
+address.
 
 Relevant endpoints:
 

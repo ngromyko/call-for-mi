@@ -63,9 +63,9 @@ public sealed class AiOptions
 public sealed class StorageOptions
 {
     public const string SectionName = "Storage";
-    public string FilePath { get; set; } = "data/calls.json";
     public string BillingFilePath { get; set; } = "data/billing.json";
     public string DatabasePath { get; set; } = "data/callforme.db";
+    public string LegacyCallsJsonPath { get; set; } = "data/calls.json";
 }
 
 public sealed class AdminOptions
@@ -80,6 +80,7 @@ public sealed class AdminOptions
 public sealed class TonPaymentsOptions
 {
     public const string SectionName = "TonPayments";
+    private const string ZeroAddress = "EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 
     public bool Enabled { get; set; }
     public string WalletAddress { get; set; } = "";
@@ -99,6 +100,11 @@ public sealed class TonPaymentsOptions
     public static bool IsLikelyTonAddress(string? value)
     {
         var address = value?.Trim() ?? "";
+        if (address.Equals(ZeroAddress, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
         return address.Length is >= 32 and <= 128 &&
             address.All(character => char.IsLetterOrDigit(character) || character is '_' or '-');
     }
@@ -107,18 +113,28 @@ public sealed class TonPaymentsOptions
 public sealed class UsdtPaymentsOptions
 {
     public const string SectionName = "UsdtPayments";
+    public const string TetherUsdtTonJettonMaster = "EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs";
 
     public bool Enabled { get; set; }
     public string WalletAddress { get; set; } = "";
-    public string Network { get; set; } = "TRC20";
+    public string Network { get; set; } = "TON";
+    public string JettonMasterAddress { get; set; } = TetherUsdtTonJettonMaster;
     public decimal CreditsPerUsdt { get; set; } = 100m;
     public decimal MinUsdtAmount { get; set; } = 1m;
 
     public bool IsConfigured =>
         Enabled &&
-        IsLikelyWalletAddress(WalletAddress) &&
+        (IsTonNetwork ? TonPaymentsOptions.IsLikelyTonAddress(WalletAddress) : IsLikelyWalletAddress(WalletAddress)) &&
         CreditsPerUsdt > 0 &&
         MinUsdtAmount > 0;
+
+    public bool IsTonNetwork => IsTonNetworkValue(Network);
+
+    public static bool IsTonNetworkValue(string? value) =>
+        string.IsNullOrWhiteSpace(value) ||
+        value.Trim().Equals("TON", StringComparison.OrdinalIgnoreCase) ||
+        value.Trim().Equals("TON-USDT", StringComparison.OrdinalIgnoreCase) ||
+        value.Trim().Equals("USDT-TON", StringComparison.OrdinalIgnoreCase);
 
     public static bool IsLikelyWalletAddress(string? value)
     {

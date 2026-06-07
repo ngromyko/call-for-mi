@@ -1,9 +1,8 @@
-const CACHE_NAME = "callforme-app-shell-v5";
+const CACHE_NAME = "callforme-refresh-state-shell-v1";
 const APP_SHELL = [
   "/",
   "/index.html",
-  "/styles.css?v=account-tab-2",
-  "/app.js?v=account-tab-2",
+  "/styles.css?v=refresh-state-1",
   "/vendor/signalr.min.js?v=8.0.7",
   "/manifest.webmanifest?v=2",
   "/icon.svg?v=2",
