@@ -1,6 +1,7 @@
 using System.Net.WebSockets;
 using System.Globalization;
 using System.Security.Claims;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -28,6 +29,7 @@ builder.Services.Configure<TwilioOptions>(builder.Configuration.GetSection(Twili
 builder.Services.Configure<AiOptions>(builder.Configuration.GetSection(AiOptions.SectionName));
 builder.Services.Configure<StorageOptions>(builder.Configuration.GetSection(StorageOptions.SectionName));
 builder.Services.Configure<AdminOptions>(builder.Configuration.GetSection(AdminOptions.SectionName));
+builder.Services.Configure<TelegramAuthOptions>(builder.Configuration.GetSection(TelegramAuthOptions.SectionName));
 builder.Services.Configure<TonPaymentsOptions>(builder.Configuration.GetSection(TonPaymentsOptions.SectionName));
 builder.Services.Configure<UsdtPaymentsOptions>(builder.Configuration.GetSection(UsdtPaymentsOptions.SectionName));
 builder.Services.PostConfigure<TwilioOptions>(options =>
@@ -54,6 +56,17 @@ builder.Services.PostConfigure<AiOptions>(options =>
 builder.Services.PostConfigure<AdminOptions>(options =>
 {
     options.Password = FirstPresent(options.Password, "CALLFORME_ADMIN_PASSWORD", "ADMIN_PASSWORD", "ADMIN__PASSWORD");
+});
+builder.Services.PostConfigure<TelegramAuthOptions>(options =>
+{
+    options.ClientId = FirstPresentLong(options.ClientId, "TELEGRAM_CLIENT_ID", "TELEGRAM_AUTH_CLIENT_ID", "TELEGRAM__CLIENT_ID", "TelegramAuth__ClientId", "TELEGRAMAUTH__CLIENTID");
+    options.ClientSecret = FirstPresent(options.ClientSecret, "TELEGRAM_CLIENT_SECRET", "TELEGRAM_AUTH_CLIENT_SECRET", "TELEGRAM__CLIENT_SECRET", "TelegramAuth__ClientSecret", "TELEGRAMAUTH__CLIENTSECRET");
+    options.BotUsername = FirstPresent(options.BotUsername, "TELEGRAM_BOT_USERNAME", "TELEGRAM_AUTH_BOT_USERNAME", "TELEGRAM__BOT_USERNAME", "TelegramAuth__BotUsername", "TELEGRAMAUTH__BOTUSERNAME");
+    options.BotToken = FirstPresent(options.BotToken, "TELEGRAM_BOT_TOKEN", "TELEGRAM_AUTH_BOT_TOKEN", "TELEGRAM__BOT_TOKEN", "TelegramAuth__BotToken", "TELEGRAMAUTH__BOTTOKEN");
+    if (!options.Enabled && (options.ClientId > 0 || options.IsLegacyConfigured))
+    {
+        options.Enabled = true;
+    }
 });
 
 builder.Services.AddCors(options =>
@@ -145,6 +158,7 @@ app.MapGet("/api", (IOptionsMonitor<TwilioOptions> twilio, IOptionsMonitor<AiOpt
         "GET /api/auth/me",
         "POST /api/auth/register",
         "POST /api/auth/login",
+        "POST /api/auth/telegram",
         "POST /api/auth/logout",
         "WS /twilio/conversation-relay",
         "SignalR /hubs/calls"
@@ -203,6 +217,38 @@ app.MapPost("/api/auth/login", async (
         return Results.Problem(title: "Вход не удался", detail: "Неверный username или пароль.", statusCode: StatusCodes.Status401Unauthorized);
     }
 
+    await SignInUserAsync(context, user);
+    return Results.Ok(new { authenticated = true, user, balanceClientId = BalanceClientId(user.Id) });
+});
+
+app.MapPost("/api/auth/telegram", async (
+    TelegramLoginRequest request,
+    HttpContext context,
+    IUserRepository users,
+    IOptionsMonitor<TelegramAuthOptions> telegram,
+    CancellationToken cancellationToken) =>
+{
+    var options = telegram.CurrentValue;
+    if (!options.IsConfigured && !options.IsLegacyConfigured)
+    {
+        return Results.Problem(
+            title: "Telegram login is not configured",
+            detail: "Telegram-вход пока не настроен.",
+            statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
+
+    var (profile, error) = !string.IsNullOrWhiteSpace(request.IdToken)
+        ? await ValidateTelegramIdTokenAsync(request.IdToken, options, cancellationToken)
+        : ValidateLegacyTelegramLogin(request, options);
+    if (profile is null)
+    {
+        return Results.Problem(
+            title: "Telegram login failed",
+            detail: error,
+            statusCode: StatusCodes.Status401Unauthorized);
+    }
+
+    var user = await users.GetOrCreateTelegramAsync(profile, cancellationToken);
     await SignInUserAsync(context, user);
     return Results.Ok(new { authenticated = true, user, balanceClientId = BalanceClientId(user.Id) });
 });
@@ -538,13 +584,14 @@ app.MapGet("/api/admin/ton-payments", async (
     return Results.Ok(await billing.ListTonPaymentsAsync(null, cancellationToken));
 });
 
-app.MapGet("/api/config", (HttpRequest request, IOptionsMonitor<TwilioOptions> twilio, IOptionsMonitor<AiOptions> ai, IOptionsMonitor<AdminOptions> admin, IOptionsMonitor<TonPaymentsOptions> ton, IOptionsMonitor<UsdtPaymentsOptions> usdt) =>
+app.MapGet("/api/config", (HttpRequest request, IOptionsMonitor<TwilioOptions> twilio, IOptionsMonitor<AiOptions> ai, IOptionsMonitor<AdminOptions> admin, IOptionsMonitor<TelegramAuthOptions> telegram, IOptionsMonitor<TonPaymentsOptions> ton, IOptionsMonitor<UsdtPaymentsOptions> usdt) =>
 {
     var twilioOptions = twilio.CurrentValue;
     var aiOptions = ai.CurrentValue;
     var twilioCredentialsOk = twilioOptions.CredentialsValid is not false;
     var readyForRealCalls = twilioOptions.IsConfigured && aiOptions.IsConfigured && twilioCredentialsOk;
     var setupReason = SetupReason(twilioOptions, aiOptions);
+    var telegramOptions = telegram.CurrentValue;
     var tonOptions = ton.CurrentValue;
     var usdtOptions = usdt.CurrentValue;
     return Results.Ok(new
@@ -565,6 +612,14 @@ app.MapGet("/api/config", (HttpRequest request, IOptionsMonitor<TwilioOptions> t
         hasAiKey = !string.IsNullOrWhiteSpace(aiOptions.ApiKey),
         adminConfigured = admin.CurrentValue.IsConfigured,
         adminAuthenticated = IsAdmin(request, admin.CurrentValue),
+        telegramAuth = new
+        {
+            enabled = telegramOptions.IsConfigured || telegramOptions.IsLegacyConfigured,
+            clientId = telegramOptions.IsConfigured ? telegramOptions.ClientId : 0,
+            botUsername = telegramOptions.IsLegacyConfigured
+                ? telegramOptions.BotUsername.Trim().TrimStart('@')
+                : ""
+        },
         tonPayments = new
         {
             enabled = tonOptions.IsConfigured,
@@ -1231,6 +1286,241 @@ app.MapGet("/admin/{*path}", () => File.Exists(adminHtmlPath)
 
 app.Run();
 
+static async Task<(TelegramUserProfile? Profile, string Error)> ValidateTelegramIdTokenAsync(
+    string idToken,
+    TelegramAuthOptions options,
+    CancellationToken cancellationToken)
+{
+    if (!options.IsConfigured)
+    {
+        return (null, "Новый Telegram Login не настроен.");
+    }
+
+    var parts = idToken.Split('.');
+    if (parts.Length != 3)
+    {
+        return (null, "Некорректный Telegram id_token.");
+    }
+
+    JsonDocument header;
+    JsonDocument payload;
+    try
+    {
+        header = JsonDocument.Parse(Base64UrlDecode(parts[0]));
+        payload = JsonDocument.Parse(Base64UrlDecode(parts[1]));
+    }
+    catch
+    {
+        return (null, "Некорректный Telegram id_token.");
+    }
+
+    using (header)
+    using (payload)
+    {
+        var rootHeader = header.RootElement;
+        var alg = rootHeader.TryGetProperty("alg", out var algElement) ? algElement.GetString() : "";
+        var kid = rootHeader.TryGetProperty("kid", out var kidElement) ? kidElement.GetString() : "";
+        if (!string.Equals(alg, "RS256", StringComparison.Ordinal) || string.IsNullOrWhiteSpace(kid))
+        {
+            return (null, "Неподдерживаемая подпись Telegram id_token.");
+        }
+
+        var root = payload.RootElement;
+        var issuer = root.TryGetProperty("iss", out var issuerElement) ? issuerElement.GetString() : "";
+        if (!string.Equals(issuer, "https://oauth.telegram.org", StringComparison.Ordinal))
+        {
+            return (null, "Некорректный issuer Telegram id_token.");
+        }
+
+        var audience = root.TryGetProperty("aud", out var audienceElement) ? audienceElement.GetString() : "";
+        if (!string.Equals(audience, options.ClientId.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal))
+        {
+            return (null, "Telegram id_token выпущен не для этого приложения.");
+        }
+
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        var exp = root.TryGetProperty("exp", out var expElement) && expElement.TryGetInt64(out var expValue) ? expValue : 0;
+        if (exp <= now)
+        {
+            return (null, "Telegram id_token устарел.");
+        }
+
+        var iat = root.TryGetProperty("iat", out var iatElement) && iatElement.TryGetInt64(out var iatValue) ? iatValue : now;
+        var maxAge = Math.Max(options.MaxAuthAgeSeconds, 60);
+        if (now - iat > maxAge)
+        {
+            return (null, "Telegram-сессия устарела. Повторите вход.");
+        }
+
+        var signedData = Encoding.ASCII.GetBytes($"{parts[0]}.{parts[1]}");
+        var signature = Base64UrlDecode(parts[2]);
+        if (!await VerifyTelegramRs256SignatureAsync(kid, signedData, signature, cancellationToken))
+        {
+            return (null, "Подпись Telegram id_token не прошла проверку.");
+        }
+
+        var id = root.TryGetProperty("id", out var idElement) && idElement.TryGetInt64(out var telegramId)
+            ? telegramId
+            : 0;
+        if (id <= 0)
+        {
+            var subject = root.TryGetProperty("sub", out var subElement) ? subElement.GetString() : "";
+            if (!long.TryParse(subject, NumberStyles.Integer, CultureInfo.InvariantCulture, out id) || id <= 0)
+            {
+                return (null, "Telegram не вернул user id.");
+            }
+        }
+
+        var username = root.TryGetProperty("preferred_username", out var usernameElement)
+            ? usernameElement.GetString()
+            : null;
+        var name = root.TryGetProperty("name", out var nameElement) ? nameElement.GetString() : null;
+        var picture = root.TryGetProperty("picture", out var pictureElement) ? pictureElement.GetString() : null;
+        var (firstName, lastName) = SplitTelegramName(name);
+        return (new TelegramUserProfile(id, username, firstName, lastName, picture), "");
+    }
+}
+
+static async Task<bool> VerifyTelegramRs256SignatureAsync(
+    string kid,
+    byte[] signedData,
+    byte[] signature,
+    CancellationToken cancellationToken)
+{
+    using var http = new HttpClient();
+    using var response = await http.GetAsync("https://oauth.telegram.org/.well-known/jwks.json", cancellationToken);
+    if (!response.IsSuccessStatusCode)
+    {
+        return false;
+    }
+
+    await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+    using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
+    foreach (var key in document.RootElement.GetProperty("keys").EnumerateArray())
+    {
+        var keyId = key.TryGetProperty("kid", out var kidElement) ? kidElement.GetString() : "";
+        var alg = key.TryGetProperty("alg", out var algElement) ? algElement.GetString() : "";
+        var kty = key.TryGetProperty("kty", out var ktyElement) ? ktyElement.GetString() : "";
+        if (!string.Equals(keyId, kid, StringComparison.Ordinal) ||
+            !string.Equals(alg, "RS256", StringComparison.Ordinal) ||
+            !string.Equals(kty, "RSA", StringComparison.Ordinal))
+        {
+            continue;
+        }
+
+        var modulus = Base64UrlDecode(key.GetProperty("n").GetString() ?? "");
+        var exponent = Base64UrlDecode(key.GetProperty("e").GetString() ?? "");
+        using var rsa = RSA.Create();
+        rsa.ImportParameters(new RSAParameters
+        {
+            Modulus = modulus,
+            Exponent = exponent
+        });
+        return rsa.VerifyData(signedData, signature, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+    }
+
+    return false;
+}
+
+static byte[] Base64UrlDecode(string value)
+{
+    var base64 = value.Replace('-', '+').Replace('_', '/');
+    base64 = base64.PadRight(base64.Length + (4 - base64.Length % 4) % 4, '=');
+    return Convert.FromBase64String(base64);
+}
+
+static (string? FirstName, string? LastName) SplitTelegramName(string? name)
+{
+    if (string.IsNullOrWhiteSpace(name))
+    {
+        return (null, null);
+    }
+
+    var parts = name.Trim().Split(' ', 2, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    return parts.Length == 1 ? (parts[0], null) : (parts[0], parts[1]);
+}
+
+static (TelegramUserProfile? Profile, string Error) ValidateLegacyTelegramLogin(
+    TelegramLoginRequest request,
+    TelegramAuthOptions options)
+{
+    if (!options.IsLegacyConfigured)
+    {
+        return (null, "Legacy Telegram Login не настроен.");
+    }
+
+    if (request.Id <= 0 ||
+        request.AuthDate <= 0 ||
+        string.IsNullOrWhiteSpace(request.Hash))
+    {
+        return (null, "Некорректные данные Telegram.");
+    }
+
+    var authDate = DateTimeOffset.FromUnixTimeSeconds(request.AuthDate);
+    var maxAge = TimeSpan.FromSeconds(Math.Max(options.MaxAuthAgeSeconds, 60));
+    if (DateTimeOffset.UtcNow - authDate > maxAge)
+    {
+        return (null, "Telegram-сессия устарела. Повторите вход.");
+    }
+
+    var fields = new SortedDictionary<string, string>(StringComparer.Ordinal)
+    {
+        ["auth_date"] = request.AuthDate.ToString(CultureInfo.InvariantCulture),
+        ["id"] = request.Id.ToString(CultureInfo.InvariantCulture)
+    };
+    AddTelegramField(fields, "first_name", request.FirstName);
+    AddTelegramField(fields, "last_name", request.LastName);
+    AddTelegramField(fields, "photo_url", request.PhotoUrl);
+    AddTelegramField(fields, "username", request.Username);
+
+    var dataCheckString = string.Join('\n', fields.Select(pair => $"{pair.Key}={pair.Value}"));
+    var secretKey = SHA256.HashData(Encoding.UTF8.GetBytes(options.BotToken.Trim()));
+    using var hmac = new HMACSHA256(secretKey);
+    var computed = hmac.ComputeHash(Encoding.UTF8.GetBytes(dataCheckString));
+    var provided = HexToBytes(request.Hash.Trim());
+    if (provided is null ||
+        provided.Length != computed.Length ||
+        !CryptographicOperations.FixedTimeEquals(provided, computed))
+    {
+        return (null, "Подпись Telegram не прошла проверку.");
+    }
+
+    return (new TelegramUserProfile(
+        request.Id,
+        request.Username,
+        request.FirstName,
+        request.LastName,
+        request.PhotoUrl), "");
+}
+
+static void AddTelegramField(SortedDictionary<string, string> fields, string name, string? value)
+{
+    if (!string.IsNullOrWhiteSpace(value))
+    {
+        fields[name] = value;
+    }
+}
+
+static byte[]? HexToBytes(string value)
+{
+    if (value.Length % 2 != 0)
+    {
+        return null;
+    }
+
+    var bytes = new byte[value.Length / 2];
+    for (var index = 0; index < bytes.Length; index++)
+    {
+        var span = value.AsSpan(index * 2, 2);
+        if (!byte.TryParse(span, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out bytes[index]))
+        {
+            return null;
+        }
+    }
+
+    return bytes;
+}
+
 static string MaskSecret(string value)
 {
     if (string.IsNullOrWhiteSpace(value))
@@ -1403,6 +1693,25 @@ static string FirstPresent(string configured, params string[] envNames)
     return configured;
 }
 
+static long FirstPresentLong(long configured, params string[] envNames)
+{
+    if (configured > 0)
+    {
+        return configured;
+    }
+
+    foreach (var name in envNames)
+    {
+        var value = Environment.GetEnvironmentVariable(name);
+        if (long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) && parsed > 0)
+        {
+            return parsed;
+        }
+    }
+
+    return configured;
+}
+
 static string KeepCurrentIfBlankOrMasked(string? incoming, string current)
 {
     if (string.IsNullOrWhiteSpace(incoming) ||
@@ -1557,6 +1866,16 @@ public sealed record SaveOpenAiSettingsRequest(string ApiKey, string? Model);
 public sealed record AdminLoginRequest(string Password);
 
 public sealed record AuthRequest(string Username, string Password);
+
+public sealed record TelegramLoginRequest(
+    [property: JsonPropertyName("id_token")] string? IdToken,
+    [property: JsonPropertyName("id")] long Id,
+    [property: JsonPropertyName("first_name")] string? FirstName,
+    [property: JsonPropertyName("last_name")] string? LastName,
+    [property: JsonPropertyName("username")] string? Username,
+    [property: JsonPropertyName("photo_url")] string? PhotoUrl,
+    [property: JsonPropertyName("auth_date")] long AuthDate,
+    [property: JsonPropertyName("hash")] string? Hash);
 
 public sealed record SaveTwilioSettingsRequest(
     string AccountSid,

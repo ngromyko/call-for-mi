@@ -77,6 +77,34 @@ public sealed class AdminOptions
     public bool IsConfigured => !string.IsNullOrWhiteSpace(Password);
 }
 
+public sealed class TelegramAuthOptions
+{
+    public const string SectionName = "TelegramAuth";
+
+    public bool Enabled { get; set; }
+    public long ClientId { get; set; }
+    public string ClientSecret { get; set; } = "";
+    public string BotUsername { get; set; } = "";
+    public string BotToken { get; set; } = "";
+    public int MaxAuthAgeSeconds { get; set; } = 86400;
+
+    public bool IsConfigured =>
+        Enabled &&
+        ClientId > 0;
+
+    public bool IsLegacyConfigured =>
+        Enabled &&
+        IsValidBotUsername(BotUsername) &&
+        !string.IsNullOrWhiteSpace(BotToken);
+
+    public static bool IsValidBotUsername(string? value)
+    {
+        var username = (value ?? "").Trim().TrimStart('@');
+        return username.Length is >= 5 and <= 32 &&
+            username.All(character => char.IsLetterOrDigit(character) || character == '_');
+    }
+}
+
 public sealed class TonPaymentsOptions
 {
     public const string SectionName = "TonPayments";

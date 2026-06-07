@@ -44,14 +44,14 @@ export function TonSettings({ config, payments, onSave }) {
           {t("admin.saveTon")}
         </button>
       </div>
-      <p>{t("admin.tonWalletHelp")}</p>
+      <p className="settings-help-text">{t("admin.tonWalletHelp")}</p>
       <div className="ton-admin-list">
-        {(payments || []).length ? payments.slice(0, 20).map(payment => (
+        {(payments || []).length ? payments.slice(0, 10).map(payment => (
           <article key={payment.id} className="ton-admin-item confirmed">
             <div>
               <strong>{paymentAmountText(payment)} {"->"} {formatBalance(payment.creditsAmount)}</strong>
               <span>{t("admin.credited")} · {payment.comment}</span>
-              <small>{payment.clientId}{payment.senderAddress ? ` · ${payment.senderAddress}` : ""}</small>
+              <small>{payment.clientId}</small>
             </div>
           </article>
         )) : <div className="empty-history">{t("admin.emptyTonPayments")}</div>}

@@ -255,6 +255,7 @@ export function useCallForMeApp() {
     },
     onRefreshCalls: () => data.loadCalls(data.activeCall?.id),
     submitAuth: authActions.submitAuth,
+    submitTelegramAuth: authActions.submitTelegramAuth,
     logout: authActions.logout,
     activeCall: data.activeCall
   };

@@ -30,7 +30,6 @@ export function AdminPage({
   tonPayments,
   onClose,
   onOpenAuth,
-  onRefreshConfig,
   onRefreshUsers,
   onSaveOpenAi,
   onSaveTwilio,
@@ -147,14 +146,6 @@ export function AdminPage({
         ) : (
           <AdminAccessGate authenticated={auth?.authenticated} onOpenAuth={onOpenAuth} />
         )}
-
-        <div className="modal-actions">
-          <button type="button" className="secondary-button" onClick={onRefreshConfig}>
-            <Icon>refresh</Icon>
-            {t("admin.checkAgain")}
-          </button>
-          <button type="button" className="primary-button" onClick={onClose}>{t("admin.done")}</button>
-        </div>
       </div>
     </section>
   );

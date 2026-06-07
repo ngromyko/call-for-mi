@@ -12,6 +12,7 @@ public interface IUserRepository
     Task<IReadOnlyList<AdminUserStatsView>> ListWithStatsAsync(CancellationToken cancellationToken);
     Task<(UserAccountView? User, string? Error)> RegisterAsync(string username, string password, CancellationToken cancellationToken);
     Task<UserAccountView?> ValidateLoginAsync(string username, string password, CancellationToken cancellationToken);
+    Task<UserAccountView> GetOrCreateTelegramAsync(TelegramUserProfile profile, CancellationToken cancellationToken);
 }
 
 public sealed class SqliteUserRepository(SqliteDatabase database, IOptionsMonitor<AdminOptions> adminOptions) : IUserRepository
@@ -143,6 +144,64 @@ public sealed class SqliteUserRepository(SqliteDatabase database, IOptionsMonito
             : null;
     }
 
+    public async Task<UserAccountView> GetOrCreateTelegramAsync(
+        TelegramUserProfile profile,
+        CancellationToken cancellationToken)
+    {
+        EnsureAdminUser();
+        var telegramId = profile.Id.ToString();
+        var username = $"tg-{telegramId}";
+
+        await using var connection = database.OpenConnection();
+        await using (var findByTelegram = connection.CreateCommand())
+        {
+            findByTelegram.CommandText = "SELECT id, username FROM users WHERE telegram_id = $telegram_id";
+            findByTelegram.Parameters.AddWithValue("$telegram_id", telegramId);
+            await using var reader = await findByTelegram.ExecuteReaderAsync(cancellationToken);
+            if (await reader.ReadAsync(cancellationToken))
+            {
+                return new UserAccountView(Guid.Parse(reader.GetString(0)), reader.GetString(1));
+            }
+        }
+
+        var salt = RandomNumberGenerator.GetBytes(16);
+        var password = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
+        var hash = HashPassword(password, salt);
+        var suffix = telegramId.Length > 12 ? telegramId[^12..] : telegramId;
+        var usernames = new[]
+        {
+            username,
+            $"telegram-{suffix}",
+            $"tg-{Guid.NewGuid().ToString("N")[..12]}"
+        };
+
+        foreach (var candidate in usernames)
+        {
+            var id = Guid.NewGuid();
+            await using var insert = connection.CreateCommand();
+            insert.CommandText = """
+                INSERT INTO users (id, username, password_hash, password_salt, telegram_id, created_at)
+                VALUES ($id, $username, $password_hash, $password_salt, $telegram_id, $created_at)
+                """;
+            insert.Parameters.AddWithValue("$id", id.ToString());
+            insert.Parameters.AddWithValue("$username", candidate);
+            insert.Parameters.AddWithValue("$password_hash", Convert.ToBase64String(hash));
+            insert.Parameters.AddWithValue("$password_salt", Convert.ToBase64String(salt));
+            insert.Parameters.AddWithValue("$telegram_id", telegramId);
+            insert.Parameters.AddWithValue("$created_at", DateTimeOffset.UtcNow.ToString("O"));
+            try
+            {
+                await insert.ExecuteNonQueryAsync(cancellationToken);
+                return new UserAccountView(id, candidate);
+            }
+            catch (SqliteException exception) when (exception.SqliteErrorCode == 19)
+            {
+            }
+        }
+
+        throw new InvalidOperationException("Could not create Telegram user.");
+    }
+
     public static string NormalizeUsername(string username) => username.Trim().ToLowerInvariant();
 
     private static bool IsValidUsername(string username) =>
@@ -166,8 +225,8 @@ public sealed class SqliteUserRepository(SqliteDatabase database, IOptionsMonito
         using var connection = database.OpenConnection();
         using var command = connection.CreateCommand();
         command.CommandText = """
-            INSERT INTO users (id, username, password_hash, password_salt, created_at)
-            VALUES ($id, $username, $password_hash, $password_salt, $created_at)
+            INSERT INTO users (id, username, password_hash, password_salt, telegram_id, created_at)
+            VALUES ($id, $username, $password_hash, $password_salt, NULL, $created_at)
             ON CONFLICT(username) DO UPDATE SET
                 password_hash = excluded.password_hash,
                 password_salt = excluded.password_salt

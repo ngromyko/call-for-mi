@@ -33,10 +33,12 @@ export function AppView({ app }) {
         <AuthDialog
           open={app.authDialog.open}
           mode={app.authDialog.mode}
+          config={app.config}
           submitting={app.authSubmitting}
           onModeChange={mode => app.setAuthDialog(current => ({ ...current, mode }))}
           onClose={app.closeAuth}
           onSubmit={app.submitAuth}
+          onTelegramSubmit={app.submitTelegramAuth}
         />
         <div className={`toast ${app.toast ? "visible" : ""}`} role="status">{app.toast}</div>
       </>
@@ -107,10 +109,12 @@ export function AppView({ app }) {
       <AuthDialog
         open={app.authDialog.open}
         mode={app.authDialog.mode}
+        config={app.config}
         submitting={app.authSubmitting}
         onModeChange={mode => app.setAuthDialog(current => ({ ...current, mode }))}
         onClose={app.closeAuth}
         onSubmit={app.submitAuth}
+        onTelegramSubmit={app.submitTelegramAuth}
       />
       <HelpDialog open={app.helpOpen} onClose={() => app.setHelpOpen(false)} />
       <div className={`toast ${app.toast ? "visible" : ""}`} role="status">{app.toast}</div>

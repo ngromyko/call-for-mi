@@ -42,7 +42,7 @@ export function UsdtSettings({ config, onSave }) {
           {t("admin.saveUsdt")}
         </button>
       </div>
-      <p>{t("admin.usdtWalletHelp")}</p>
+      <p className="settings-help-text">{t("admin.usdtWalletHelp")}</p>
     </div>
   );
 }

@@ -2,12 +2,14 @@ import { useEffect, useState } from "react";
 import { Dialog, Icon } from "./Dialog.jsx";
 import { useI18n } from "../i18n/I18nContext.jsx";
 
-export function AuthDialog({ open, mode, onModeChange, onClose, onSubmit, submitting }) {
+export function AuthDialog({ open, mode, config, onModeChange, onClose, onSubmit, onTelegramSubmit, submitting }) {
   const { t } = useI18n();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const isRegister = mode === "register";
+  const telegramAuth = config?.telegramAuth || {};
+  const telegramClientId = telegramAuth.enabled && telegramAuth.clientId ? Number(telegramAuth.clientId) : 0;
 
   useEffect(() => {
     if (open) {
@@ -16,6 +18,45 @@ export function AuthDialog({ open, mode, onModeChange, onClose, onSubmit, submit
       setError("");
     }
   }, [open, mode]);
+
+  useEffect(() => {
+    if (!open || !telegramClientId) {
+      return undefined;
+    }
+
+    const scriptId = "telegram-login-sdk";
+    if (document.getElementById(scriptId)) {
+      return undefined;
+    }
+    const script = document.createElement("script");
+    script.id = scriptId;
+    script.async = true;
+    script.src = "https://telegram.org/js/telegram-login.js";
+    document.head.appendChild(script);
+    return undefined;
+  }, [open, telegramClientId]);
+
+  async function submitTelegram() {
+    setError("");
+    if (!telegramClientId || !window.Telegram?.Login?.auth) {
+      setError(t("auth.telegramUnavailable"));
+      return;
+    }
+
+    window.Telegram.Login.auth({ client_id: telegramClientId }, async result => {
+      if (!result || result.error || !result.id_token) {
+        setError(result?.error || t("auth.telegramFailed"));
+        return;
+      }
+
+      try {
+        await onTelegramSubmit({ id_token: result.id_token });
+        onClose();
+      } catch (apiError) {
+        setError(apiError.message || t("auth.telegramFailed"));
+      }
+    });
+  }
 
   async function submit(event) {
     event.preventDefault();
@@ -65,6 +106,15 @@ export function AuthDialog({ open, mode, onModeChange, onClose, onSubmit, submit
           <button type="button" className={!isRegister ? "active" : ""} onClick={() => onModeChange("login")}>{t("auth.login")}</button>
           <button type="button" className={isRegister ? "active" : ""} onClick={() => onModeChange("register")}>{t("auth.register")}</button>
         </div>
+        {telegramClientId ? (
+          <div className="telegram-auth-block">
+            <span>{t("auth.orTelegram")}</span>
+            <button type="button" className="telegram-login-button" onClick={submitTelegram} disabled={submitting}>
+              <Icon>send</Icon>
+              {t("auth.telegramLogin")}
+            </button>
+          </div>
+        ) : null}
         <div className="modal-actions">
           <button type="button" className="secondary-button" onClick={onClose}>{t("dialogs.cancel")}</button>
           <button type="submit" className="primary-button" disabled={submitting}>

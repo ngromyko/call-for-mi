@@ -36,6 +36,22 @@ export function useAuthActions({
     }
   }, [authDialogMode, loadBalance, loadCalls, loadConfig, loadTonDepositInfo, setAuth, setAuthSubmitting, showToast, t]);
 
+  const submitTelegramAuth = useCallback(async payload => {
+    setAuthSubmitting(true);
+    try {
+      const nextAuth = await apiClient.telegramLogin(payload);
+      setAuth(nextAuth);
+      authRef.current = nextAuth;
+      await loadBalance(nextAuth);
+      await loadConfig().catch(() => {});
+      await loadTonDepositInfo().catch(() => {});
+      await loadCalls();
+      showToast(t("auth.telegramDone"));
+    } finally {
+      setAuthSubmitting(false);
+    }
+  }, [authRef, loadBalance, loadCalls, loadConfig, loadTonDepositInfo, setAuth, setAuthSubmitting, showToast, t]);
+
   const logout = useCallback(async () => {
     try {
       await apiClient.logout();
@@ -53,5 +69,5 @@ export function useAuthActions({
     }
   }, [clearCallState, loadBalance, loadConfig, resetRealtime, setAuth, setMobileView, showToast, t]);
 
-  return { logout, submitAuth };
+  return { logout, submitAuth, submitTelegramAuth };
 }

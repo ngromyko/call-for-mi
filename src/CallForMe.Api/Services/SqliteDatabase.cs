@@ -80,6 +80,7 @@ public sealed class SqliteDatabase
                 username TEXT NOT NULL UNIQUE,
                 password_hash TEXT NOT NULL,
                 password_salt TEXT NOT NULL,
+                telegram_id TEXT NULL,
                 created_at TEXT NOT NULL
             );
 
@@ -152,10 +153,15 @@ public sealed class SqliteDatabase
         AddColumnIfMissing(connection, "ton_payments", "submitted_at", "TEXT NULL");
         AddColumnIfMissing(connection, "ton_payments", "confirmed_at", "TEXT NULL");
         AddColumnIfMissing(connection, "ton_payments", "confirmed_by", "TEXT NULL");
+        AddColumnIfMissing(connection, "users", "telegram_id", "TEXT NULL");
 
         using var tonIndex = connection.CreateCommand();
         tonIndex.CommandText = "CREATE UNIQUE INDEX IF NOT EXISTS ux_ton_payments_external_id ON ton_payments(external_id)";
         tonIndex.ExecuteNonQuery();
+
+        using var telegramUserIndex = connection.CreateCommand();
+        telegramUserIndex.CommandText = "CREATE UNIQUE INDEX IF NOT EXISTS ux_users_telegram_id ON users(telegram_id) WHERE telegram_id IS NOT NULL";
+        telegramUserIndex.ExecuteNonQuery();
     }
 
     private static void AddColumnIfMissing(SqliteConnection connection, string table, string column, string type)

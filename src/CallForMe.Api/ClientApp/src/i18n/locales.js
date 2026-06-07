@@ -194,10 +194,15 @@ export const messages = {
       loginSubmit: "Войти",
       registerSubmit: "Зарегистрироваться",
       missing: "Введите username и пароль.",
+      orTelegram: "или войдите через Telegram",
+      telegramLogin: "Войти через Telegram",
       loginDone: "Вы вошли",
+      telegramDone: "Вы вошли через Telegram",
       registerDone: "Аккаунт создан",
       logoutDone: "Вы вышли из аккаунта",
       logoutFailed: "Не удалось выйти",
+      telegramUnavailable: "Telegram-вход ещё загружается. Попробуйте снова.",
+      telegramFailed: "Не удалось войти через Telegram.",
       failed: "Не удалось войти."
     },
     topup: {
@@ -531,10 +536,15 @@ export const messages = {
       loginSubmit: "Log in",
       registerSubmit: "Create account",
       missing: "Enter username and password.",
+      orTelegram: "or log in with Telegram",
+      telegramLogin: "Log in with Telegram",
       loginDone: "You are logged in",
+      telegramDone: "You are logged in with Telegram",
       registerDone: "Account created",
       logoutDone: "You are logged out",
       logoutFailed: "Could not log out",
+      telegramUnavailable: "Telegram login is still loading. Try again.",
+      telegramFailed: "Could not log in with Telegram.",
       failed: "Could not log in."
     },
     topup: {

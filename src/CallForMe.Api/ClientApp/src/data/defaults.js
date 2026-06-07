@@ -5,6 +5,7 @@ export const defaultConfig = {
   aiEnabled: false,
   readyForRealCalls: false,
   callPricePerMinute: 0.5,
+  telegramAuth: { enabled: false, clientId: 0, botUsername: "" },
   tonPayments: {},
   usdtPayments: {}
 };

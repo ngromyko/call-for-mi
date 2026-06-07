@@ -73,6 +73,7 @@ The app also recognizes common environment variable names:
 - `TWILIO_AUTH_TOKEN`
 - `TWILIO_FROM_NUMBER` or `TWILIO_PHONE_NUMBER`
 - `TWILIO_PUBLIC_BASE_URL`
+- `TELEGRAM_CLIENT_ID`
 
 ```powershell
 dotnet user-secrets init --project src/CallForMe.Api
@@ -83,6 +84,14 @@ dotnet user-secrets set "Twilio:FromNumber" "+1..." --project src/CallForMe.Api
 dotnet user-secrets set "Twilio:PublicBaseUrl" "https://your-public-domain" --project src/CallForMe.Api
 dotnet user-secrets set "AI:Enabled" "true" --project src/CallForMe.Api
 dotnet user-secrets set "AI:ApiKey" "..." --project src/CallForMe.Api
+```
+
+Telegram login uses the current Telegram Login library. Create a bot through BotFather, configure
+the site domain, get the Telegram Login `Client ID`, then configure:
+
+```powershell
+dotnet user-secrets set "TelegramAuth:Enabled" "true" --project src/CallForMe.Api
+dotnet user-secrets set "TelegramAuth:ClientId" "1234567890" --project src/CallForMe.Api
 ```
 
 `Twilio:PublicBaseUrl` must be an HTTPS address reachable by Twilio. The service derives the

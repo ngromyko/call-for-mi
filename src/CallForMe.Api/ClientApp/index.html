@@ -3,12 +3,28 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="description" content="Call for me — ИИ-помощник для телефонных звонков: переводит разговор, предлагает ответы и помогает общаться с сервисами на другом языке.">
+  <meta name="robots" content="index, follow">
+  <meta name="application-name" content="Call for me">
+  <meta name="author" content="Call for me">
   <meta name="theme-color" content="#0d0d12">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Call for me">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <title>Call for me</title>
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Call for me">
+  <meta property="og:title" content="Call for me — ИИ-помощник для звонков и переводов">
+  <meta property="og:description" content="ИИ помогает звонить в клиники, банки, службы доставки и поддержку на другом языке: переводит разговор, предлагает ответы и ведёт историю звонков.">
+  <meta property="og:locale" content="ru_RU">
+  <meta property="og:url" content="https://callforme.xyz/">
+  <meta property="og:image" content="https://callforme.xyz/icon-512.png">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="Call for me — ИИ-помощник для звонков и переводов">
+  <meta name="twitter:description" content="Перевод телефонных разговоров, подсказки ответов и история звонков в одном веб-приложении.">
+  <meta name="twitter:image" content="https://callforme.xyz/icon-512.png">
+  <title>Call for me — ИИ-помощник для звонков и переводов</title>
+  <link rel="canonical" href="https://callforme.xyz/">
   <link rel="icon" href="/favicon.ico?v=2" sizes="any">
   <link rel="icon" href="/icon.svg?v=2" type="image/svg+xml">
   <link rel="shortcut icon" href="/favicon.ico?v=2">
@@ -17,10 +33,27 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,300,0,0" rel="stylesheet">
-  <link rel="stylesheet" href="/styles.css?v=wallet-pwa-14">
+  <link rel="stylesheet" href="/styles.css?v=wallet-pwa-16">
+  <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebApplication",
+      "name": "Call for me",
+      "applicationCategory": "ProductivityApplication",
+      "operatingSystem": "Web",
+      "inLanguage": ["ru", "en"],
+      "description": "ИИ-помощник для телефонных звонков: переводит разговор, предлагает ответы и помогает общаться с сервисами на другом языке."
+    }
+  </script>
 </head>
 <body class="mobile-view-history">
   <div id="root"></div>
+  <noscript>
+    <main>
+      <h1>Call for me — ИИ-помощник для звонков</h1>
+      <p>Веб-приложение помогает звонить в клиники, банки, службы доставки и поддержку на другом языке: переводит разговор, предлагает ответы и сохраняет историю звонков.</p>
+    </main>
+  </noscript>
   <script src="/vendor/signalr.min.js?v=8.0.7"></script>
   <script type="module" src="/src/main.jsx"></script>
 </body>
