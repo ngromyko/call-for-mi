@@ -1,0 +1,135 @@
+name: Deploy
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    env:
+      DOTNET_NOLOGO: true
+      PUBLISH_DIR: artifacts/publish
+      DEPLOY_ARCHIVE: artifacts/deploy-api.tar.gz
+      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+      DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+      DEPLOY_PORT: ${{ secrets.DEPLOY_PORT || '22' }}
+      DEPLOY_PATH: ${{ secrets.DEPLOY_PATH || '/home/skynet/call-for-mi' }}
+      DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: src/CallForMe.Api/ClientApp/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: src/CallForMe.Api/ClientApp
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: src/CallForMe.Api/ClientApp
+        run: |
+          rm -rf ../wwwroot/assets
+          npm run build
+
+      - name: Publish API
+        run: |
+          rm -rf "$PUBLISH_DIR" "$DEPLOY_ARCHIVE"
+          dotnet publish src/CallForMe.Api/CallForMe.Api.csproj \
+            -c Release \
+            -r linux-x64 \
+            --self-contained true \
+            -o "$PUBLISH_DIR"
+          rm -rf "$PUBLISH_DIR/data"
+          rm -f "$PUBLISH_DIR/appsettings.Local.json"
+          mkdir -p "$(dirname "$DEPLOY_ARCHIVE")"
+          tar -czf "$DEPLOY_ARCHIVE" -C "$PUBLISH_DIR" .
+
+      - name: Verify deploy secrets
+        run: |
+          test -n "$DEPLOY_HOST"
+          test -n "$DEPLOY_USER"
+          test -n "$DEPLOY_SSH_KEY"
+
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "$DEPLOY_PORT" "$DEPLOY_HOST" >> ~/.ssh/known_hosts
+
+      - name: Upload archive
+        run: |
+          scp -i ~/.ssh/deploy_key -P "$DEPLOY_PORT" "$DEPLOY_ARCHIVE" \
+            "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_PATH/deploy-api.tar.gz"
+
+      - name: Restart server
+        run: |
+          ssh -i ~/.ssh/deploy_key -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
+            "APP='$DEPLOY_PATH' bash -s" <<'EOF'
+          set -euo pipefail
+          PIDFILE="$APP/api/call-for-mi.pid"
+
+          if [ -f "$PIDFILE" ]; then
+            PID=$(cat "$PIDFILE" || true)
+            if [ -n "$PID" ] && kill -0 "$PID" 2>/dev/null; then
+              kill "$PID"
+              for i in {1..10}; do
+                if ! kill -0 "$PID" 2>/dev/null; then
+                  break
+                fi
+                sleep 1
+              done
+              if kill -0 "$PID" 2>/dev/null; then
+                kill -9 "$PID"
+              fi
+            fi
+          fi
+
+          pkill -f "$APP/api/CallForMe.Api" || true
+
+          rm -rf "$APP/api.prev"
+          if [ -d "$APP/api" ]; then
+            mv "$APP/api" "$APP/api.prev"
+          fi
+
+          mkdir -p "$APP/api" "$APP/logs"
+          tar -xzf "$APP/deploy-api.tar.gz" -C "$APP/api"
+          chmod +x "$APP/api/CallForMe.Api"
+
+          if [ -d "$APP/api.prev/data" ]; then
+            cp -r "$APP/api.prev/data" "$APP/api/"
+          fi
+          if [ -f "$APP/api.prev/appsettings.Local.json" ]; then
+            cp "$APP/api.prev/appsettings.Local.json" "$APP/api/"
+          fi
+
+          chmod +x "$APP/start-api.sh"
+          "$APP/start-api.sh"
+          rm -f "$APP/deploy-api.tar.gz"
+          EOF
+
+      - name: Health check
+        run: |
+          sleep 3
+          curl --fail --show-error --silent "http://$DEPLOY_HOST:5226/health"

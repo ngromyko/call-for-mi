@@ -136,3 +136,22 @@ reading the database directly.
 - WebSocket handshakes and HTTP callbacks are validated with `X-Twilio-Signature`.
 - Add authentication and authorization before exposing operator endpoints.
 - Confirm recording and AI-disclosure requirements for every calling jurisdiction.
+
+## GitHub Actions deploy
+
+The `.github/workflows/deploy.yml` workflow builds the React frontend, publishes the ASP.NET API as
+a self-contained Linux x64 app, uploads it over SSH, preserves the server `data` directory and
+`appsettings.Local.json`, then restarts the API.
+
+It runs on pushes to `main` and can also be started manually from the GitHub Actions tab.
+
+Repository secrets required:
+
+- `DEPLOY_HOST` - server IP or hostname.
+- `DEPLOY_USER` - SSH user.
+- `DEPLOY_SSH_KEY` - private SSH key allowed on the server.
+
+Optional repository secrets:
+
+- `DEPLOY_PORT` - SSH port, defaults to `22`.
+- `DEPLOY_PATH` - app directory, defaults to `/home/skynet/call-for-mi`.
