@@ -820,6 +820,7 @@ body.is-live-call .history-item.active .history-duration {
 }
 .history-status { display: flex !important; align-items: center; gap: 5px; color: var(--amber) !important; }
 .history-status.live, .history-status.warning { color: var(--amber) !important; }
+.history-status.ringing { color: #ffd28a !important; }
 .history-status.complete { color: var(--green) !important; }
 .history-status.failed { color: var(--red) !important; }
 .history-status .material-symbols-rounded { font-size: 14px; }
@@ -956,6 +957,8 @@ body.mobile-view-wallet .help-button {
 body.call-status-idle .contact-avatar { border-color: #55436c; color: #cab4e4; background: var(--violet-soft); }
 body.call-status-dialing .contact-avatar { border-color: rgba(232,173,82,.86); color: #ffd28a; background: #33291c; }
 body.call-status-dialing .contact-avatar::after { background: radial-gradient(circle at 32% 24%, rgba(255,255,255,.16), transparent 30%), #33291c; }
+body.call-status-ringing .contact-avatar { border-color: rgba(232,173,82,.96); color: #ffe0a7; background: #3b2b18; }
+body.call-status-ringing .contact-avatar::after { background: radial-gradient(circle at 32% 24%, rgba(255,255,255,.18), transparent 30%), #3b2b18; }
 body.call-status-live .contact-avatar { border-color: rgba(87,201,138,.9); color: #bdf2d3; background: #1c3327; }
 body.call-status-live .contact-avatar::after { background: radial-gradient(circle at 32% 24%, rgba(255,255,255,.16), transparent 30%), #1c3327; }
 body.call-status-complete .contact-avatar { border-color: rgba(87,201,138,.55); color: #8fe0b2; background: #182820; }
@@ -1009,6 +1012,7 @@ body.remote-speaking .contact-avatar {
 body.is-live-call .live-label i { animation: liveDot 1.2s ease-in-out infinite; }
 body.call-status-idle .live-label i { background: var(--subtle); box-shadow: none; }
 body.call-status-dialing .live-label i { background: var(--amber); box-shadow: 0 0 0 4px rgba(232,173,82,.12); }
+body.call-status-ringing .live-label i { background: #ffd28a; box-shadow: 0 0 0 5px rgba(232,173,82,.18); }
 body.call-status-live .live-label i { background: var(--green); box-shadow: 0 0 0 4px rgba(87,201,138,.12); }
 body.call-status-complete .live-label i { background: var(--green); box-shadow: 0 0 0 4px rgba(87,201,138,.08); }
 body.call-status-failed .live-label i { background: var(--red); box-shadow: 0 0 0 4px rgba(227,95,99,.12); }

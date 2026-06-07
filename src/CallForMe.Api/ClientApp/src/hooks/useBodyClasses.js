@@ -13,6 +13,8 @@ export function useBodyClasses({ activeCall, mobileView }) {
           ? "call-status-failed"
           : normalizedStatus === "Completed"
             ? "call-status-complete"
+            : normalizedStatus === "Ringing"
+              ? "call-status-ringing"
             : normalizedStatus === "InProgress"
               ? "call-status-live"
               : "call-status-dialing";

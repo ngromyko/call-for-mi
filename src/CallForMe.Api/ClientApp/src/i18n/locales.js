@@ -92,6 +92,7 @@ export const messages = {
       noAnswer: "Не ответили",
       canceled: "Отменён",
       dialing: "Дозваниваемся",
+      ringing: "Звонит",
       live: "Идёт разговор"
     },
     contacts: {
@@ -420,6 +421,7 @@ export const messages = {
       noAnswer: "No answer",
       canceled: "Canceled",
       dialing: "Dialing",
+      ringing: "Ringing",
       live: "In progress"
     },
     contacts: {

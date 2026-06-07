@@ -357,7 +357,7 @@ public static class TwimlFactory
         return new XDocument(new XDeclaration("1.0", "UTF-8", null), response).ToString();
     }
 
-    private static string WelcomeGreeting(string language) => language.Split('-')[0].ToLowerInvariant() switch
+    public static string WelcomeGreeting(string language) => language.Split('-')[0].ToLowerInvariant() switch
     {
         "ru" => "Здравствуйте. Я ИИ-ассистент и звоню по поручению пользователя. Разговор может быть расшифрован.",
         "uk" => "Вітаю. Я ШІ-помічник і телефоную за дорученням користувача. Розмову може бути розшифровано.",

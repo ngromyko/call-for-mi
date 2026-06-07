@@ -135,15 +135,30 @@ public sealed class ConversationOrchestrator
 
     public async Task<CallSession?> MarkConnectedAsync(Guid callId, CancellationToken cancellationToken)
     {
+        TranscriptEntry? greetingEntry = null;
         var call = await _repository.MutateAsync(callId, stored =>
         {
             stored.Status = CallStatus.InProgress;
             stored.AnsweredAt ??= DateTimeOffset.UtcNow;
+            if (!stored.Transcript.Any(entry => entry.Source == "welcome-greeting"))
+            {
+                greetingEntry = NewEntry(
+                    TranscriptSpeaker.Assistant,
+                    TwimlFactory.WelcomeGreeting(stored.Language),
+                    "welcome-greeting");
+                stored.Transcript.Add(greetingEntry);
+            }
+
             stored.Usage = CallUsageMetrics.From(stored);
             stored.UpdatedAt = DateTimeOffset.UtcNow;
         }, cancellationToken);
         if (call is not null)
         {
+            if (greetingEntry is not null)
+            {
+                await PublishTranscriptAsync(callId, greetingEntry, cancellationToken);
+            }
+
             await PublishCallAsync(call, cancellationToken);
         }
 

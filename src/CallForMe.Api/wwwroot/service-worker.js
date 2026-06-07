@@ -1,8 +1,8 @@
-const CACHE_NAME = "callforme-wallet-pwa-shell-v13";
+const CACHE_NAME = "callforme-wallet-pwa-shell-v14";
 const APP_SHELL = [
   "/",
   "/index.html",
-  "/styles.css?v=wallet-pwa-13",
+  "/styles.css?v=wallet-pwa-14",
   "/vendor/signalr.min.js?v=8.0.7",
   "/manifest.webmanifest?v=2",
   "/icon.svg?v=2",

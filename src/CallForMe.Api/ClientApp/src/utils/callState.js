@@ -33,7 +33,8 @@ export function callStatusMeta(call, t) {
   if (status === "Busy") return { className: "warning", icon: "phone_missed", text: t("status.busy") };
   if (status === "NoAnswer") return { className: "warning", icon: "phone_missed", text: t("status.noAnswer") };
   if (status === "Canceled") return { className: "warning", icon: "cancel", text: t("status.canceled") };
-  if (status === "Queued" || status === "Calling" || status === "Ringing") {
+  if (status === "Ringing") return { className: "ringing", icon: "phone_in_talk", text: t("status.ringing") };
+  if (status === "Queued" || status === "Calling") {
     return { className: "live", icon: "radio_button_checked", text: t("status.dialing") };
   }
   if (isLive(call)) return { className: "live", icon: "radio_button_checked", text: t("status.live") };
