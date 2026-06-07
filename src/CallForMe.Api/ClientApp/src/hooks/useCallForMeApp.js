@@ -14,18 +14,19 @@ import { useServiceWorker } from "./useServiceWorker.js";
 import { useToast } from "./useToast.js";
 
 const storedViewKey = "callforme_selected_view";
+const mobileViews = new Set(["history", "call", "wallet", "account"]);
 
 function storedMobileView() {
   try {
     const view = localStorage.getItem(storedViewKey);
-    return view === "account" ? "account" : "call";
+    return mobileViews.has(view) ? view : "history";
   } catch {
-    return "call";
+    return "history";
   }
 }
 
 function saveMobileView(view) {
-  if (view !== "account" && view !== "call") return;
+  if (!mobileViews.has(view)) return;
   try {
     localStorage.setItem(storedViewKey, view);
   } catch {
@@ -197,13 +198,19 @@ export function useCallForMeApp() {
     return () => window.removeEventListener("popstate", onPopState);
   }, [openSettings]);
 
-  const changeMobileView = useCallback(view => {
+  const changeMobileView = useCallback(async view => {
     if (view === "admin") {
       openSettings();
       return;
     }
-    setMobileView(view === "account" ? "account" : "call");
-  }, [openSettings]);
+    const nextView = mobileViews.has(view) ? view : "history";
+    setMobileView(nextView);
+    if (nextView === "wallet" && data.authRef.current?.authenticated) {
+      await data.loadTonDepositInfo().catch(() => {
+        showToast(t("topup.notConfigured"));
+      });
+    }
+  }, [data, openSettings, showToast, t]);
 
   return {
     admin: {

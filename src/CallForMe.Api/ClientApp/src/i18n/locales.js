@@ -13,6 +13,7 @@ export const messages = {
       home: "Главная",
       call: "Звонок",
       history: "История",
+      wallet: "Кошелек",
       account: "Аккаунт",
       admin: "Админ"
     },
@@ -81,7 +82,8 @@ export const messages = {
       noCall: "Нет активного звонка",
       startFirst: "Сначала начните реальный звонок",
       oneMinuteCost: "Одна минута стоит {{price}} USD (кредиты). Пополните кредиты.",
-      oneMinuteCostProfile: "Одна минута стоит {{price}} USD (кредиты). Зайдите в профиль и пополните кредиты."
+      oneMinuteCostProfile: "Одна минута стоит {{price}} USD (кредиты). Зайдите в профиль и пополните кредиты.",
+      costCredits: "{{amount}} кредитов"
     },
     status: {
       completed: "Завершён",
@@ -196,6 +198,13 @@ export const messages = {
       failed: "Не удалось войти."
     },
     topup: {
+      availableCredits: "Доступные кредиты",
+      payment: "Оплата",
+      approxUsd: "≈ ${{amount}}",
+      promoPrompt: "Есть промокод?",
+      lastTransaction: "Последняя транзакция",
+      credits: "кредитов",
+      creditedStatus: "зачислено",
       currency: "Валюта",
       amount: "Сумма",
       amountCurrency: "Сумма {{currency}}",
@@ -282,6 +291,8 @@ export const messages = {
       createPromo: "Добавить промокод",
       emptyPromo: "Промокодов пока нет.",
       promoActivations: "+{{amount}} кредитов · активации {{limit}}",
+      promoUsedBy: "Кто использовал",
+      promoNoRedemptions: "Пока никто не использовал",
       promoActive: "Активен",
       promoDisabled: "Отключён",
       promoSaved: "Промокод сохранён",
@@ -330,6 +341,7 @@ export const messages = {
       home: "Home",
       call: "Call",
       history: "History",
+      wallet: "Wallet",
       account: "Account",
       admin: "Admin"
     },
@@ -398,7 +410,8 @@ export const messages = {
       noCall: "No active call",
       startFirst: "Start a real call first",
       oneMinuteCost: "One minute costs {{price}} USD credits. Top up credits.",
-      oneMinuteCostProfile: "One minute costs {{price}} USD credits. Open your profile and top up credits."
+      oneMinuteCostProfile: "One minute costs {{price}} USD credits. Open your profile and top up credits.",
+      costCredits: "{{amount}} credits"
     },
     status: {
       completed: "Completed",
@@ -513,6 +526,13 @@ export const messages = {
       failed: "Could not log in."
     },
     topup: {
+      availableCredits: "Available credits",
+      payment: "Payment",
+      approxUsd: "≈ ${{amount}}",
+      promoPrompt: "Have a promo code?",
+      lastTransaction: "Last transaction",
+      credits: "credits",
+      creditedStatus: "credited",
       currency: "Currency",
       amount: "Amount",
       amountCurrency: "Amount {{currency}}",
@@ -599,6 +619,8 @@ export const messages = {
       createPromo: "Add promo code",
       emptyPromo: "No promo codes yet.",
       promoActivations: "+{{amount}} credits · activations {{limit}}",
+      promoUsedBy: "Used by",
+      promoNoRedemptions: "No usage yet",
       promoActive: "Active",
       promoDisabled: "Disabled",
       promoSaved: "Promo code saved",

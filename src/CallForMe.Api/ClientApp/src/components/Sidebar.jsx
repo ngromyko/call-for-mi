@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { BalanceCard } from "./BalanceCard.jsx";
+import { Brand } from "./Brand.jsx";
 import { Icon } from "./Dialog.jsx";
 import { HistoryPanel } from "./HistoryPanel.jsx";
 import { LanguageSwitcher } from "./LanguageSwitcher.jsx";
-import { PaymentProcessingBanner } from "./PaymentProcessingBanner.jsx";
+import { WalletPanel } from "./WalletPanel.jsx";
 import { useI18n } from "../i18n/I18nContext.jsx";
 
 export function Sidebar({
@@ -24,8 +25,8 @@ export function Sidebar({
   onHideCall,
   onOpenSettings,
   onOpenHelp,
+  onOpenTopup,
   onRedeemPromo,
-  onLoadDepositInfo,
   onRefreshTon,
   onCopyAddress,
   onCopyComment
@@ -34,6 +35,8 @@ export function Sidebar({
   const [checkingPayments, setCheckingPayments] = useState(false);
   const authenticated = !!auth?.authenticated;
   const accountVisible = view === "account";
+  const walletVisible = view === "wallet";
+  const profileVisible = accountVisible || walletVisible;
   const ready = !!config.readyForRealCalls;
   const setupReason = config.setupReason || t("setup.checkBeforeCall");
   const processingPayments = useMemo(
@@ -58,15 +61,9 @@ export function Sidebar({
 
   return (
     <aside className="sidebar">
-      <div className="brand">
-        <span className="brand-mark material-symbols-rounded">graphic_eq</span>
-        <div>
-          <strong>Call for me</strong>
-          <span>{t("app.assistant")}</span>
-        </div>
-      </div>
+      <Brand />
 
-      {!accountVisible ? (
+      {!profileVisible ? (
         <button
           className="new-call-button"
           type="button"
@@ -86,52 +83,46 @@ export function Sidebar({
               <span>{t("sidebar.account")}</span>
               <strong>{authenticated ? auth.user.username : t("sidebar.guest")}</strong>
             </div>
-            {!authenticated ? (
-              <button
-                type="button"
-                className="account-button"
-                onClick={event => {
-                  event.stopPropagation();
-                  onOpenAuth("login");
-                }}
-              >
-                <Icon>login</Icon>
-                {t("sidebar.login")}
-              </button>
-            ) : (
-              <button
-                type="button"
-                className="account-button"
-                onClick={event => {
-                  event.stopPropagation();
-                  onLogout();
-                }}
-              >
-                <Icon>logout</Icon>
-                {t("sidebar.logout")}
-              </button>
-            )}
-            {isAdmin ? (
-              <button
-                type="button"
-                className="account-button admin-account-button"
-                onClick={event => {
-                  event.stopPropagation();
-                  onOpenSettings();
-                }}
-              >
-                <Icon>tune</Icon>
-                {t("navigation.admin")}
-              </button>
-            ) : null}
-            {authenticated ? (
-              <PaymentProcessingBanner
-                payments={processingPayments}
-                checking={checkingPayments}
-                onRefresh={refreshPayments}
-                onCopyComment={onCopyComment}
-              />
-            ) : null}
+            <div className="account-actions">
+              {!authenticated ? (
+                <button
+                  type="button"
+                  className="account-button"
+                  onClick={event => {
+                    event.stopPropagation();
+                    onOpenAuth("login");
+                  }}
+                >
+                  <Icon>login</Icon>
+                  {t("sidebar.login")}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="account-button"
+                  onClick={event => {
+                    event.stopPropagation();
+                    onLogout();
+                  }}
+                >
+                  <Icon>logout</Icon>
+                  {t("sidebar.logout")}
+                </button>
+              )}
+              {isAdmin ? (
+                <button
+                  type="button"
+                  className="account-button admin-account-button"
+                  onClick={event => {
+                    event.stopPropagation();
+                    onOpenSettings();
+                  }}
+                >
+                  <Icon>tune</Icon>
+                  {t("navigation.admin")}
+                </button>
+              ) : null}
+            </div>
           </section>
 
           <LanguageSwitcher />
@@ -140,17 +131,26 @@ export function Sidebar({
             <BalanceCard
               authenticated={authenticated}
               balance={balance}
-              config={config}
-              payments={tonPayments}
-              onRedeem={onRedeemPromo}
-              onOpenAuth={onOpenAuth}
-              onLoadDepositInfo={onLoadDepositInfo}
-              onRefreshTon={refreshPayments}
-              onCopyAddress={onCopyAddress}
-              onCopyComment={onCopyComment}
+              onOpenTopup={onOpenTopup}
             />
           ) : null}
         </>
+      ) : null}
+
+      {walletVisible ? (
+        <WalletPanel
+          authenticated={authenticated}
+          balance={balance}
+          config={config}
+          payments={tonPayments}
+          processingPayments={processingPayments}
+          checkingPayments={checkingPayments}
+          onRedeem={onRedeemPromo}
+          onOpenAuth={onOpenAuth}
+          onRefreshTon={refreshPayments}
+          onCopyAddress={onCopyAddress}
+          onCopyComment={onCopyComment}
+        />
       ) : null}
 
       {isAdmin && !ready ? (
@@ -164,7 +164,7 @@ export function Sidebar({
         </div>
       ) : null}
 
-      {!accountVisible ? (
+      {!profileVisible ? (
         <HistoryPanel
           calls={calls}
           activeCall={activeCall}
@@ -176,12 +176,6 @@ export function Sidebar({
       ) : null}
 
       <div className="sidebar-bottom">
-        {isAdmin ? (
-          <button className="help-button" type="button" onClick={onOpenSettings}>
-            <Icon>tune</Icon>
-            {t("sidebar.settings")}
-          </button>
-        ) : null}
         <button className="help-button" type="button" onClick={onOpenHelp}>
           <Icon>help</Icon>
           {t("sidebar.help")}

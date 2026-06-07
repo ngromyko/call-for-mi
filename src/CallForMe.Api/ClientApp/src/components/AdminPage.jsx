@@ -6,6 +6,7 @@ import { SettingsStatus } from "./admin/SettingsStatus.jsx";
 import { TonSettings } from "./admin/TonSettings.jsx";
 import { TwilioSettings } from "./admin/TwilioSettings.jsx";
 import { UsdtSettings } from "./admin/UsdtSettings.jsx";
+import { Brand } from "./Brand.jsx";
 import { Icon } from "./Dialog.jsx";
 import { useI18n } from "../i18n/I18nContext.jsx";
 
@@ -43,6 +44,7 @@ export function AdminPage({
   return (
     <section className="admin-page" hidden={!open}>
       <div className="admin-page-inner">
+        <Brand className="screen-brand" />
         <div className="admin-page-header">
           <div>
             <span className="eyebrow">{t("admin.eyebrow")}</span>
@@ -63,7 +65,7 @@ export function AdminPage({
             <TwilioSettings config={config} onSave={onSaveTwilio} onCheck={onCheckTwilio} />
             <TonSettings config={config} payments={tonPayments} onSave={onSaveTon} />
             <UsdtSettings config={config} onSave={onSaveUsdt} />
-            <PromoSettings promoCodes={promoCodes} onCreate={onCreatePromo} onToggle={onTogglePromo} />
+            <PromoSettings users={users} promoCodes={promoCodes} onCreate={onCreatePromo} onToggle={onTogglePromo} />
           </>
         ) : (
           <AdminAccessGate authenticated={auth?.authenticated} onOpenAuth={onOpenAuth} />

@@ -3,17 +3,7 @@ import { Icon } from "./Dialog.jsx";
 import { formatBalance, formatTon, formatUsdt, isTonUsdtNetwork, tonTransferLink, usdtTransferLink } from "../utils/format.js";
 import { useI18n } from "../i18n/I18nContext.jsx";
 
-function paymentCurrency(item) {
-  return String(item?.currency || "TON").toUpperCase();
-}
-
-function paymentAmountText(item) {
-  return paymentCurrency(item) === "USDT"
-    ? `${formatUsdt(item.tonAmount)} USDT`
-    : `${formatTon(item.tonAmount)} TON`;
-}
-
-export function TopupPanel({ config, payments, onRefreshTon, onCopyAddress, onCopyComment }) {
+export function TopupPanel({ config, onRefreshTon, onCopyAddress, onCopyComment }) {
   const { t } = useI18n();
   const [currency, setCurrency] = useState("TON");
   const [amount, setAmount] = useState("0.1");
@@ -52,28 +42,31 @@ export function TopupPanel({ config, payments, onRefreshTon, onCopyAddress, onCo
     });
 
   return (
-    <section className="ton-topup-panel">
+    <section className="ton-topup-panel payment-card" aria-label={t("topup.payment")}>
       <form onSubmit={event => {
         event.preventDefault();
         setShowDetails(true);
       }}>
+        <label>
+          <span>{t("topup.amountCurrency", { currency })}</span>
+          <div className="amount-input-shell">
+            <input
+              type="number"
+              min={payment.min}
+              step="0.01"
+              value={amountValue}
+              inputMode="decimal"
+              onChange={event => setAmount(event.target.value)}
+            />
+            <span>{currency} {t("topup.approxUsd", { amount: formatBalance(payment.credits) })}</span>
+          </div>
+        </label>
         <label>
           <span>{t("topup.currency")}</span>
           <select value={currency} onChange={event => setCurrency(event.target.value)} autoComplete="off">
             <option value="TON">TON</option>
             <option value="USDT">USDT</option>
           </select>
-        </label>
-        <label>
-          <span>{t("topup.amountCurrency", { currency })}</span>
-          <input
-            type="number"
-            min={payment.min}
-            step="0.01"
-            value={amountValue}
-            inputMode="decimal"
-            onChange={event => setAmount(event.target.value)}
-          />
         </label>
         <button type="submit" className="primary-button">
           <Icon>payments</Icon>
@@ -121,20 +114,6 @@ export function TopupPanel({ config, payments, onRefreshTon, onCopyAddress, onCo
           <Icon>done</Icon>
           {t("topup.refreshNow")}
         </button>
-      </div>
-
-      <div className="ton-user-payments">
-        {(payments || []).filter(item => String(item.status || "").toLowerCase() !== "processing").slice(0, 3).map(item => (
-          <article key={item.id} className="ton-payment-item confirmed">
-            <div>
-              <strong>{paymentAmountText(item)}</strong>
-              <span>{formatBalance(item.creditsAmount)} {t("topup.credited")}</span>
-              <button type="button" className="inline-copy-button" onClick={() => onCopyComment(item.comment)}>
-                {item.comment}
-              </button>
-            </div>
-          </article>
-        ))}
       </div>
     </section>
   );

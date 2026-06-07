@@ -36,7 +36,7 @@ export function Conversation({ call, config, isAdmin, onEnsureSummary }) {
       <div className="pinned-summary" hidden={!call || isLive(call)}>
         <CallSummary call={call} />
       </div>
-      <div className="conversation" ref={ref} aria-live="polite">
+      <div className={`conversation ${transcript.length ? "has-messages" : ""}`} ref={ref} aria-live="polite">
         {transcript.length ? transcript.map(entry => (
           <Message key={entry.id || `${entry.timestamp}-${entry.text}`} entry={entry} call={call} />
         )) : (

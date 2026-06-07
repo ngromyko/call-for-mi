@@ -4,7 +4,8 @@ import { useI18n } from "../i18n/I18nContext.jsx";
 export function MobileNavigation({ view, isAdmin, ready, onChangeView, onNewCall }) {
   const { t } = useI18n();
   const items = [
-    ["call", "home", t("navigation.home")],
+    ["history", "history", t("navigation.history")],
+    ["wallet", "account_balance_wallet", t("navigation.wallet")],
     ["account", "account_circle", t("navigation.account")]
   ];
 

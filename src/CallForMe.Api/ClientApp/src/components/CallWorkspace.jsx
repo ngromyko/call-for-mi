@@ -1,4 +1,6 @@
+import { Brand } from "./Brand.jsx";
 import { CallHeader } from "./CallHeader.jsx";
+import { CallStatusBanner } from "./CallStatusBanner.jsx";
 import { Conversation } from "./Conversation.jsx";
 import { HistoryPanel } from "./HistoryPanel.jsx";
 import { ReplyArea } from "./ReplyArea.jsx";
@@ -22,6 +24,7 @@ export function CallWorkspace({
 }) {
   return (
     <main className="main">
+      <Brand className="screen-brand" />
       <CallHeader call={call} config={config} elapsedSeconds={elapsedSeconds} />
       <section className="mobile-home-history" aria-label="Call history">
         <HistoryPanel
@@ -39,6 +42,7 @@ export function CallWorkspace({
           <span /><span /><span /><span /><span />
           <span /><span /><span /><span /><span />
         </div>
+        <CallStatusBanner call={call} />
         <Conversation call={call} config={config} isAdmin={isAdmin} onEnsureSummary={onEnsureSummary} />
         <ReplyArea
           call={call}

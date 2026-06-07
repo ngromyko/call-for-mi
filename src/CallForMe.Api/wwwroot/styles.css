@@ -27,6 +27,11 @@
 }
 
 * { box-sizing: border-box; }
+html {
+  min-height: 100%;
+  background: var(--bg);
+  overscroll-behavior-y: none;
+}
 body {
   margin: 0;
   min-width: 320px;
@@ -34,6 +39,11 @@ body {
   background: var(--bg);
   color: var(--text);
   overflow: hidden;
+  overscroll-behavior-y: none;
+}
+#root {
+  min-height: 100vh;
+  background: var(--bg);
 }
 button, input, textarea, select { font: inherit; }
 button { color: inherit; cursor: pointer; }
@@ -46,7 +56,7 @@ button { color: inherit; cursor: pointer; }
   bottom: 18px;
   z-index: 70;
   display: grid;
-  grid-template-columns: repeat(2, 132px);
+  grid-template-columns: repeat(3, 92px);
   gap: 8px;
   align-items: center;
   padding: 8px;
@@ -57,7 +67,27 @@ button { color: inherit; cursor: pointer; }
   backdrop-filter: blur(16px);
   transform: translateX(-50%);
 }
-.mobile-nav-action { display: none; }
+.mobile-nav-action {
+  position: fixed;
+  right: 40px;
+  bottom: 40px;
+  z-index: 75;
+  display: grid;
+  place-items: center;
+  width: 70px;
+  height: 70px;
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 24px;
+  background: var(--violet);
+  color: white;
+  box-shadow: 0 22px 52px rgba(0,0,0,.36), 0 12px 28px rgba(143,112,188,.34);
+}
+.mobile-nav-action .material-symbols-rounded { font-size: 32px; }
+.mobile-nav-action:disabled {
+  opacity: .52;
+  cursor: not-allowed;
+  box-shadow: none;
+}
 .mobile-nav-button {
   min-width: 0;
   display: grid;
@@ -91,6 +121,7 @@ button { color: inherit; cursor: pointer; }
   scrollbar-width: thin;
 }
 .brand { display: flex; align-items: center; gap: 14px; padding: 0 8px; }
+.screen-brand { display: none; }
 .brand-mark {
   display: grid;
   place-items: center;
@@ -166,7 +197,12 @@ button { color: inherit; cursor: pointer; }
   font-size: 12px;
   font-weight: 700;
 }
-.account-button + .account-button { margin-top: 8px; }
+.account-actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 0;
+}
 .admin-account-button {
   border-color: #4f8dd9;
   background: var(--blue-soft);
@@ -271,6 +307,94 @@ button { color: inherit; cursor: pointer; }
   color: #d7e7ff;
   font-size: 18px;
 }
+.wallet-card {
+  min-width: 0;
+  margin: 0 8px 24px;
+  display: grid;
+  gap: 12px;
+}
+.wallet-balance-card,
+.payment-card,
+.promo-collapse,
+.last-transaction-card {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+}
+.wallet-balance-card {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.wallet-balance-card span,
+.last-transaction-card > span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+.wallet-balance-card strong {
+  color: #d7e7ff;
+  font-size: 28px;
+}
+.payment-card {
+  border-color: #4f8dd9;
+  background: linear-gradient(180deg, rgba(23,40,61,.72), rgba(20,20,27,.96) 42%);
+  box-shadow: 0 18px 46px rgba(0,0,0,.22);
+}
+.promo-collapse {
+  color: #d7e7ff;
+}
+.promo-collapse summary {
+  display: flex;
+  align-items: center;
+  min-height: 24px;
+  color: #d7e7ff;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.promo-collapse summary::-webkit-details-marker {
+  display: none;
+}
+.promo-collapse summary::after {
+  content: "expand_more";
+  margin-left: auto;
+  color: var(--muted);
+  font-family: "Material Symbols Rounded";
+  font-size: 20px;
+  line-height: 1;
+}
+.promo-collapse[open] summary::after {
+  content: "expand_less";
+}
+.promo-collapse .promo-redeem-form {
+  margin-top: 12px;
+}
+.last-transaction-card {
+  display: grid;
+  gap: 10px;
+}
+.last-transaction-card .ton-payment-item {
+  padding: 11px;
+}
+.last-transaction-line {
+  display: flex !important;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.last-transaction-line .material-symbols-rounded {
+  color: var(--muted);
+  font-size: 17px;
+}
+.last-transaction-meta {
+  display: block;
+  margin-top: 6px;
+  color: var(--subtle) !important;
+}
 .promo-redeem-form {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 40px;
@@ -321,6 +445,10 @@ button { color: inherit; cursor: pointer; }
   gap: 10px;
   margin-top: 10px;
 }
+.payment-card.ton-topup-panel {
+  margin-top: 0;
+  gap: 12px;
+}
 .ton-topup-panel[hidden],
 .ton-payment-box[hidden],
 #markTonPaidButton[hidden] {
@@ -358,6 +486,37 @@ button { color: inherit; cursor: pointer; }
 }
 .ton-topup-panel input:focus,
 .ton-topup-panel select:focus { border-color: var(--blue); }
+.amount-input-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 40px;
+  padding: 0 11px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--surface-2);
+}
+.amount-input-shell:focus-within {
+  border-color: var(--blue);
+}
+.amount-input-shell input {
+  height: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.amount-input-shell input:focus {
+  border: 0;
+}
+.amount-input-shell span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
 .ton-payment-box,
 .ton-payment-item,
 .ton-admin-item {
@@ -694,15 +853,17 @@ body.is-live-call .history-item.active .history-duration {
 .main { height: 100vh; display: flex; flex-direction: column; min-width: 0; padding: 22px 32px 104px; }
 .mobile-home-history { display: none; }
 body.mobile-view-admin .main { display: none; }
-body.mobile-view-account .app-shell {
+body.mobile-view-account .app-shell,
+body.mobile-view-wallet .app-shell {
   grid-template-columns: minmax(320px, 460px);
   justify-content: center;
 }
-body.mobile-view-account .main {
+body.mobile-view-account .main,
+body.mobile-view-wallet .main {
   display: none;
 }
-body.mobile-view-account .sidebar {
-  width: min(460px, calc(100vw - 32px));
+body.mobile-view-account .sidebar,
+body.mobile-view-wallet .sidebar {
   height: auto;
   max-height: calc(100vh - 116px);
   margin: 16px 0 0;
@@ -711,6 +872,64 @@ body.mobile-view-account .sidebar {
 }
 body.mobile-view-account .account-card {
   margin: 0 8px 24px;
+}
+body.mobile-view-wallet .sidebar {
+  padding: 38px 40px;
+}
+body.mobile-view-wallet .brand {
+  margin: 0 0 20px;
+  padding: 0;
+}
+body.mobile-view-wallet .wallet-card {
+  margin: 0;
+  gap: 16px;
+}
+body.mobile-view-wallet .wallet-balance-card,
+body.mobile-view-wallet .payment-card,
+body.mobile-view-wallet .promo-collapse,
+body.mobile-view-wallet .last-transaction-card {
+  padding: 18px 20px;
+  border-radius: 18px;
+}
+body.mobile-view-wallet .wallet-balance-card {
+  min-height: 84px;
+}
+body.mobile-view-wallet .payment-card.ton-topup-panel {
+  gap: 14px;
+}
+body.mobile-view-wallet .ton-topup-panel form {
+  gap: 12px;
+}
+body.mobile-view-wallet .ton-topup-panel input,
+body.mobile-view-wallet .ton-topup-panel select,
+body.mobile-view-wallet .amount-input-shell {
+  height: 48px;
+  border-radius: 12px;
+}
+body.mobile-view-wallet .wallet-card .primary-button,
+body.mobile-view-wallet .wallet-card .secondary-button {
+  min-height: 54px;
+  border-radius: 14px;
+}
+body.mobile-view-wallet .promo-collapse summary {
+  min-height: 30px;
+}
+body.mobile-view-wallet .last-transaction-card {
+  gap: 14px;
+}
+body.mobile-view-wallet .last-transaction-card .ton-payment-item {
+  padding: 14px;
+}
+body.mobile-view-wallet .sidebar-bottom {
+  margin: 16px 0 0;
+  padding: 0;
+  border: 0;
+}
+body.mobile-view-wallet .help-button {
+  min-height: 58px;
+  padding: 0 18px;
+  border-radius: 16px;
+  font-size: 16px;
 }
 .call-header { display: flex; align-items: center; gap: 18px; min-height: 74px; }
 .contact-avatar { position: relative; display: grid; place-items: center; width: 58px; height: 58px; flex: 0 0 auto; border-radius: 50%; background: var(--violet-soft); border: 1px solid #55436c; color: #cab4e4; isolation: isolate; }
@@ -794,6 +1013,13 @@ body.call-status-live .live-label i { background: var(--green); box-shadow: 0 0 
 body.call-status-complete .live-label i { background: var(--green); box-shadow: 0 0 0 4px rgba(87,201,138,.08); }
 body.call-status-failed .live-label i { background: var(--red); box-shadow: 0 0 0 4px rgba(227,95,99,.12); }
 .call-state strong { display: block; margin-top: 5px; font-size: 24px; letter-spacing: .03em; }
+.call-cost {
+  display: block;
+  margin-top: 4px;
+  color: #c7b2dd;
+  font-size: 11px;
+  font-weight: 700;
+}
 .mini-eq {
   display: none;
   align-items: end;
@@ -841,6 +1067,13 @@ body:not(.has-active-call) .conversation-card {
     #111117;
 }
 .conversation { min-height: 0; flex: 1; overflow-y: auto; padding: 22px 28px; scrollbar-color: #373540 transparent; }
+.conversation.has-messages {
+  display: flex;
+  flex-direction: column;
+}
+.conversation.has-messages .message-row:first-child {
+  margin-top: auto;
+}
 .call-energy {
   position: absolute;
   left: 26px;
@@ -928,17 +1161,12 @@ body.is-live-call .conversation { padding-top: 58px; }
 
 .reply-area { padding: 0 18px 16px; }
 body:not(.has-active-call) .reply-area { display: none; }
-.call-status-complete .reply-area > :not(.call-action-state) {
-  display: none !important;
-}
-.reply-area.compact-state {
-  padding-top: 10px;
-}
 .call-action-state {
   display: grid;
   grid-template-columns: auto 1fr;
   gap: 12px;
   align-items: center;
+  margin: 16px 18px 0;
   padding: 14px 16px;
   border: 1px solid var(--line);
   border-radius: 14px;
@@ -1278,6 +1506,38 @@ input:checked + .toggle-visual span { transform: translateX(16px); background: w
   color: var(--muted);
   font-size: 11px;
 }
+.promo-redemption-list {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+}
+.promo-redemption-item {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  margin-top: 0 !important;
+  padding: 7px 8px;
+  border: 1px solid var(--line-soft);
+  border-radius: 9px;
+  background: rgba(255,255,255,.02);
+}
+.promo-redemption-item strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+}
+.promo-redemption-item small,
+.promo-redemption-empty {
+  color: var(--subtle);
+  font-size: 10px;
+}
+.promo-redemption-empty {
+  display: block;
+  margin-top: 8px;
+}
 .promo-admin-item .secondary-button {
   min-height: 36px;
   padding-inline: 11px;
@@ -1389,14 +1649,87 @@ input:checked + .toggle-visual span { transform: translateX(16px); background: w
   .composer { grid-template-columns: 1fr 180px; }
   .end-call-button { min-height: 46px; grid-column: 1 / -1; }
 }
+@media (min-width: 781px) {
+  body.mobile-view-account .app-shell,
+  body.mobile-view-wallet .app-shell {
+    min-height: 100vh;
+    display: grid;
+    grid-template-columns: minmax(0, 920px);
+    justify-content: center;
+    align-content: start;
+    padding: 28px 24px 116px;
+  }
+  body.mobile-view-account .sidebar,
+  body.mobile-view-wallet .sidebar {
+    width: min(920px, calc(100vw - 48px));
+    height: auto;
+    max-height: calc(100vh - 144px);
+    margin: 0;
+    padding: 30px;
+    border: 1px solid var(--line);
+    border-radius: 24px;
+    background: var(--sidebar);
+  }
+  body.mobile-view-account .sidebar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(320px, .82fr);
+    gap: 18px;
+    align-content: start;
+  }
+  body.mobile-view-account .brand,
+  body.mobile-view-account .sidebar-bottom {
+    grid-column: 1 / -1;
+  }
+  body.mobile-view-account .account-card,
+  body.mobile-view-account .language-switcher,
+  body.mobile-view-account .balance-card,
+  body.mobile-view-wallet .wallet-card {
+    margin: 0;
+  }
+  body.mobile-view-account .balance-card {
+    grid-column: 2;
+    grid-row: 2 / 4;
+    align-self: stretch;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    min-height: 196px;
+  }
+  body.mobile-view-account .balance-card > div {
+    margin-bottom: 26px;
+  }
+  body.mobile-view-account .balance-card span {
+    font-size: 15px;
+  }
+  body.mobile-view-account .balance-card strong {
+    font-size: 32px;
+  }
+  body.mobile-view-account .ton-toggle-button {
+    min-height: 48px;
+  }
+  body.mobile-view-account .sidebar-bottom {
+    margin-top: 4px;
+  }
+  body.mobile-view-wallet .app-shell {
+    grid-template-columns: minmax(0, 760px);
+  }
+  body.mobile-view-wallet .sidebar {
+    width: min(760px, calc(100vw - 48px));
+  }
+}
 @media (max-width: 780px) {
+  html,
+  body,
+  #root {
+    min-height: 100dvh;
+    background: var(--bg);
+  }
   body {
-    overflow: auto;
+    overflow: hidden;
     overflow-x: hidden;
     min-height: 100dvh;
-    background:
-      radial-gradient(circle at 50% -8%, rgba(143,112,188,.18), transparent 32%),
-      var(--bg);
+    background: var(--bg);
+    overscroll-behavior-y: none;
   }
   body.mobile-view-call {
     overflow: hidden;
@@ -1405,11 +1738,12 @@ input:checked + .toggle-visual span { transform: translateX(16px); background: w
   .app-shell {
     display: block;
     min-height: 100dvh;
+    background: var(--bg);
   }
   .sidebar {
     position: static;
     width: auto;
-    height: auto;
+    height: 100dvh;
     min-height: 100dvh;
     max-height: none;
     margin: 0;
@@ -1417,11 +1751,24 @@ input:checked + .toggle-visual span { transform: translateX(16px); background: w
     border: 0;
     border-radius: 0;
     background: transparent;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+  }
+  body.mobile-view-history .sidebar,
+  body.mobile-view-account .sidebar,
+  body.mobile-view-wallet .sidebar {
+    height: 100dvh;
+    max-height: none;
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+    background: var(--bg);
   }
   body.mobile-view-call .sidebar { display: none; }
   body.mobile-view-admin .sidebar { display: none; }
   body.mobile-view-history .main { display: none; }
   body.mobile-view-account .main { display: none; }
+  body.mobile-view-wallet .main { display: none; }
   body.mobile-view-admin .main { display: none; }
   .admin-page {
     height: 100dvh;
@@ -1466,67 +1813,163 @@ input:checked + .toggle-visual span { transform: translateX(16px); background: w
     font-size: 16px;
   }
   .brand {
+    display: flex;
     gap: 10px;
     padding: 0 2px;
     margin-bottom: 14px;
+    transition: gap .24s ease, margin .24s ease, transform .24s ease;
   }
+  .screen-brand { display: flex; }
   .brand-mark {
     width: 42px;
     height: 42px;
     border-radius: 13px;
     font-size: 24px;
+    transition: width .24s ease, height .24s ease, border-radius .24s ease, font-size .24s ease;
   }
-  .brand strong { font-size: 18px; }
-  .brand span:last-child { font-size: 10px; }
+  .brand strong { font-size: 18px; transition: font-size .24s ease; }
+  .brand span:last-child { font-size: 10px; transition: opacity .2s ease, max-height .24s ease, margin .24s ease; }
   .new-call-button {
     display: none;
+  }
+  body.mobile-view-account .sidebar {
+    max-width: 520px;
+    margin: 0 auto;
+    padding: calc(18px + env(safe-area-inset-top)) 16px calc(132px + env(safe-area-inset-bottom));
+    gap: 14px;
+  }
+  body.mobile-view-wallet .sidebar {
+    max-width: 520px;
+    margin: 0 auto;
+    padding: calc(18px + env(safe-area-inset-top)) 16px calc(132px + env(safe-area-inset-bottom));
+    gap: 14px;
+  }
+  body.mobile-view-account .brand {
+    min-height: 56px;
+    margin: 0;
+    padding: 0;
+    gap: 12px;
+  }
+  body.mobile-view-account .brand-mark {
+    width: 52px;
+    height: 52px;
+    border-radius: 16px;
+    font-size: 27px;
+  }
+  body.mobile-view-account .brand strong {
+    font-size: 22px;
+    line-height: 1.2;
+  }
+  body.mobile-view-account .brand span:last-child {
+    margin-top: 3px;
+    font-size: 11px;
+  }
+  body.mobile-view-wallet .brand {
+    min-height: 56px;
+    margin: 0;
+    padding: 0;
+    gap: 12px;
+  }
+  body.mobile-view-wallet .brand-mark {
+    width: 52px;
+    height: 52px;
+    border-radius: 16px;
+    font-size: 27px;
+  }
+  body.mobile-view-wallet .brand strong {
+    font-size: 22px;
+    line-height: 1.2;
+  }
+  body.mobile-view-wallet .brand span:last-child {
+    margin-top: 3px;
+    font-size: 11px;
   }
   body.mobile-view-account .history-heading,
   body.mobile-view-account .call-history,
   body.mobile-view-account .sidebar-bottom {
     display: none;
   }
-  .account-card {
+  body.mobile-view-account .account-card,
+  body.mobile-view-account .language-switcher,
+  body.mobile-view-account .balance-card {
     margin: 0;
-    padding: 14px;
-    border-radius: 18px;
+    padding: 16px;
+    border: 1px solid var(--line);
+    border-radius: 20px;
+    background: #14141b;
+    box-shadow: none;
   }
-  .account-card > div {
-    margin-bottom: 13px;
+  body.mobile-view-account .account-card {
+    display: grid;
+    gap: 14px;
+    max-height: none;
+    overflow: hidden;
+    transition: max-height .28s ease, margin .24s ease, padding .24s ease, opacity .2s ease;
   }
-  .account-card span {
-    font-size: 13px;
+  body.mobile-view-account .account-card > div {
+    margin: 0;
+    transition: margin .24s ease;
   }
-  .account-card strong {
-    font-size: 17px;
+  body.mobile-view-account .account-card > div:first-child {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
   }
-  .account-button {
-    min-height: 46px;
-    border-radius: 13px;
-    font-size: 17px;
+  body.mobile-view-account .account-card span,
+  body.mobile-view-account .language-switcher label > span,
+  body.mobile-view-account .balance-card span {
+    color: var(--muted);
+    font-size: 14px;
+    font-weight: 700;
+    line-height: 1.25;
   }
-  .language-switcher {
-    margin: 12px 0 0;
-    padding: 14px;
-    border-radius: 18px;
+  body.mobile-view-account .account-card strong {
+    color: var(--text);
+    font-size: 20px;
+    line-height: 1.2;
   }
-  .language-switcher label > span {
-    margin-bottom: 9px;
-    font-size: 13px;
+  body.mobile-view-account .account-actions {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 10px;
+    margin: 0;
   }
-  .language-switcher select {
+  body.mobile-view-account .account-button {
+    min-height: 52px;
+    border-radius: 14px;
+    font-size: 16px;
+    transition: min-height .24s ease, font-size .24s ease, border-radius .24s ease;
+  }
+  body.mobile-view-account .language-switcher {
+    max-height: 128px;
+    overflow: hidden;
+    transition: max-height .28s ease, margin .24s ease, padding .24s ease, opacity .2s ease;
+  }
+  body.mobile-view-account .language-switcher label > span {
+    margin-bottom: 10px;
+    transition: opacity .2s ease, max-height .24s ease, margin .24s ease;
+  }
+  body.mobile-view-account .language-switcher select {
     height: 52px;
     border-radius: 14px;
-    font-size: 18px;
+    font-size: 16px;
+    transition: height .24s ease, font-size .24s ease, border-radius .24s ease;
   }
-  .balance-card {
-    margin: 12px 0 0;
-    padding: 14px;
-    border-radius: 18px;
+  body.mobile-view-account .balance-card {
+    display: grid;
+    gap: 14px;
+    transition: margin .24s ease, padding .24s ease, border-color .24s ease, box-shadow .24s ease;
   }
-  .balance-card > div { margin-bottom: 12px; }
-  .balance-card span { font-size: 13px; }
-  .balance-card strong { font-size: 22px; }
+  body.mobile-view-account .balance-card > div {
+    margin: 0;
+    align-items: center;
+  }
+  body.mobile-view-account .balance-card strong {
+    color: #d7e7ff;
+    font-size: 28px;
+    line-height: 1.1;
+  }
   .promo-redeem-form input {
     height: 50px;
     border-radius: 14px;
@@ -1535,10 +1978,56 @@ input:checked + .toggle-visual span { transform: translateX(16px); background: w
   .promo-redeem-form button {
     border-radius: 14px;
   }
-  .ton-toggle-button {
-    min-height: 48px;
+  body.mobile-view-account .ton-toggle-button {
+    min-height: 52px;
     border-radius: 14px;
+    font-size: 15px;
+  }
+  body.mobile-view-wallet .wallet-card {
+    margin: 0;
+    gap: 14px;
+  }
+  body.mobile-view-wallet .wallet-balance-card,
+  body.mobile-view-wallet .payment-card,
+  body.mobile-view-wallet .promo-collapse,
+  body.mobile-view-wallet .last-transaction-card {
+    padding: 16px;
+    border-radius: 20px;
+  }
+  body.mobile-view-wallet .wallet-balance-card {
+    min-height: 74px;
+  }
+  body.mobile-view-wallet .wallet-balance-card span,
+  body.mobile-view-wallet .last-transaction-card > span {
     font-size: 14px;
+  }
+  body.mobile-view-wallet .wallet-balance-card strong {
+    font-size: 28px;
+  }
+  body.mobile-view-wallet .wallet-card .account-processing-list {
+    margin: 10px 0 0;
+  }
+  body.mobile-view-wallet .wallet-card .ton-topup-panel {
+    margin-top: 0;
+    gap: 12px;
+  }
+  body.mobile-view-wallet .wallet-card .ton-payment-box {
+    max-height: none;
+  }
+  body.mobile-view-wallet .ton-topup-panel form {
+    gap: 12px;
+  }
+  body.mobile-view-wallet .ton-topup-panel input,
+  body.mobile-view-wallet .ton-topup-panel select,
+  body.mobile-view-wallet .amount-input-shell {
+    height: 52px;
+    border-radius: 14px;
+  }
+  body.mobile-view-wallet .wallet-card .primary-button,
+  body.mobile-view-wallet .wallet-card .secondary-button {
+    min-height: 52px;
+    border-radius: 14px;
+    font-size: 15px;
   }
   .setup-warning {
     margin: 10px 0 0;
@@ -1608,27 +2097,35 @@ input:checked + .toggle-visual span { transform: translateX(16px); background: w
   }
   .history-menu { right: 8px; }
   .sidebar-bottom { display: none; }
+  body.mobile-view-wallet .sidebar-bottom {
+    display: block;
+    margin-top: 0;
+    padding: 0;
+    border: 0;
+  }
+  body.mobile-view-wallet .help-button {
+    min-height: 56px;
+    border-radius: 18px;
+  }
   .mobile-nav {
     position: fixed;
-    left: 0;
-    right: 0;
-    bottom: 0;
+    left: 50%;
+    right: auto;
+    bottom: calc(10px + env(safe-area-inset-bottom));
     z-index: 70;
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(74px, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 7px;
     align-items: center;
+    width: min(252px, calc(100vw - 104px));
     margin: 0;
-    padding: 8px 10px calc(8px + env(safe-area-inset-bottom));
-    border-top: 1px solid rgba(45,44,55,.9);
-    border-right: 0;
-    border-bottom: 0;
-    border-left: 0;
-    border-radius: 0;
+    padding: 7px;
+    border: 1px solid rgba(45,44,55,.9);
+    border-radius: 18px;
     background: rgba(16,16,22,.96);
     backdrop-filter: blur(16px);
-    box-shadow: none;
-    transform: none;
+    box-shadow: 0 18px 48px rgba(0,0,0,.34);
+    transform: translateX(-50%);
   }
   .mobile-nav-button,
   .mobile-nav-action {
@@ -1654,8 +2151,8 @@ input:checked + .toggle-visual span { transform: translateX(16px); background: w
   }
   .mobile-nav-action {
     position: fixed;
-    right: 16px;
-    bottom: calc(82px + env(safe-area-inset-bottom));
+    right: 24px;
+    bottom: calc(94px + env(safe-area-inset-bottom));
     z-index: 75;
     display: grid;
     place-items: center;
@@ -1681,18 +2178,14 @@ input:checked + .toggle-visual span { transform: translateX(16px); background: w
     overflow: hidden;
     padding: calc(10px + env(safe-area-inset-top)) 12px calc(150px + env(safe-area-inset-bottom));
   }
+  .mobile-nav-button span {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
   .mobile-home-history {
-    flex: 0 0 auto;
-    display: block;
-    min-height: 0;
-    max-height: 210px;
-    margin-top: 8px;
-    padding: 8px 8px 9px;
-    border: 1px solid var(--line-soft);
-    border-radius: 15px;
-    background: rgba(20,20,27,.58);
-    overflow-y: auto;
-    overflow-x: hidden;
+    display: none;
   }
   .mobile-home-history .history-heading {
     padding: 0 2px 7px;
@@ -1884,15 +2377,13 @@ input:checked + .toggle-visual span { transform: translateX(16px); background: w
     padding: 0 8px 8px;
     background: linear-gradient(180deg, rgba(17,17,23,0), #111117 14%);
   }
-  .reply-area.compact-state {
-    padding-top: 8px;
-  }
   .translation-status {
     margin: 0 0 6px;
     font-size: 9px;
   }
   .call-action-state {
     gap: 10px;
+    margin: 10px 10px 0;
     padding: 11px 12px;
     border-radius: 12px;
   }
@@ -2101,4 +2592,13 @@ input:checked + .toggle-visual span { transform: translateX(16px); background: w
     width: auto;
   }
   .end-call-button .material-symbols-rounded { font-size: 18px; }
+}
+
+@media (max-width: 780px) {
+  body.mobile-view-account .sidebar > .brand,
+  body.mobile-view-wallet .sidebar > .brand {
+    margin-bottom: 0 !important;
+    padding: 0 !important;
+    gap: 12px !important;
+  }
 }

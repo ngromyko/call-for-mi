@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Icon } from "./Dialog.jsx";
-import { callStatusMeta, isLive, statusName, translationStatus } from "../utils/callState.js";
+import { isLive, translationStatus } from "../utils/callState.js";
 import { callLanguageName } from "../data/languages.js";
 import { useI18n } from "../i18n/I18nContext.jsx";
 
@@ -8,11 +8,8 @@ export function ReplyArea({ call, onSendMessage, onToggleAutoPilot, onEndCall, d
   const { t } = useI18n();
   const [sending, setSending] = useState(false);
   const live = isLive(call);
-  const status = callStatusMeta(call, t);
-  const normalizedStatus = statusName(call?.status);
   const latest = call?.transcript?.at(-1);
   const suggestions = Array.isArray(call?.suggestions) ? call.suggestions : [];
-  const showActionState = !!call && !live;
   const placeholder = call
     ? (live
       ? t("conversation.messagePlaceholderLive", { language: callLanguageName(call.userLanguage, t("languages.autoShort")) })
@@ -31,8 +28,10 @@ export function ReplyArea({ call, onSendMessage, onToggleAutoPilot, onEndCall, d
     }
   }
 
+  if (!live) return null;
+
   return (
-    <div className={`reply-area ${showActionState ? "compact-state" : ""}`}>
+    <div className="reply-area">
       <div className="translation-status" hidden={!live}>
         <Icon>graphic_eq</Icon>
         <span>{translationStatus(call, latest, t)}</span>
@@ -95,22 +94,6 @@ export function ReplyArea({ call, onSendMessage, onToggleAutoPilot, onEndCall, d
           {t("conversation.end")}
         </button>
       </form>
-
-      <div className={`call-action-state ${status.className === "complete" ? "complete" : status.className === "failed" ? "failed" : "warning"}`} hidden={!showActionState}>
-        <Icon>{status.icon}</Icon>
-        <div>
-          <strong>{normalizedStatus === "Completed" ? t("call.ended") : status.text}</strong>
-          <span>{actionText(normalizedStatus, call, t)}</span>
-        </div>
-      </div>
     </div>
   );
-}
-
-function actionText(status, call, t) {
-  if (status === "NoAnswer") return t("conversation.actionNoAnswer");
-  if (status === "Busy") return t("conversation.actionBusy");
-  if (status === "Canceled") return t("conversation.actionCanceled");
-  if (status === "Failed") return call?.error || t("conversation.actionFailed");
-  return t("conversation.actionCompleted");
 }

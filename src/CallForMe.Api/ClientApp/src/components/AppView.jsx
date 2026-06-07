@@ -64,8 +64,8 @@ export function AppView({ app }) {
           onHideCall={app.callActions.hideCall}
           onOpenSettings={app.openSettings}
           onOpenHelp={() => app.setHelpOpen(true)}
+          onOpenTopup={() => app.setMobileView("wallet")}
           onRedeemPromo={app.paymentActions.redeemPromo}
-          onLoadDepositInfo={app.onLoadDepositInfo}
           onRefreshTon={app.paymentActions.refreshTonDeposits}
           onCopyAddress={app.paymentActions.copyPaymentAddress}
           onCopyComment={app.paymentActions.copyPaymentComment}

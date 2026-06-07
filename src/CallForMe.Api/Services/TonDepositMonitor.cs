@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Net;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using CallForMe.Api.Models;
@@ -147,12 +148,18 @@ public sealed class TonPriceClient(HttpClient httpClient, ILogger<TonPriceClient
     private readonly SemaphoreSlim _gate = new(1, 1);
     private decimal? _cachedUsdPrice;
     private DateTimeOffset _cachedAt;
+    private DateTimeOffset _nextLookupAt;
 
     public async Task<decimal> GetTonUsdPriceAsync(decimal fallbackUsdPrice, CancellationToken cancellationToken)
     {
         if (_cachedUsdPrice is > 0 && DateTimeOffset.UtcNow - _cachedAt < TimeSpan.FromMinutes(2))
         {
             return _cachedUsdPrice.Value;
+        }
+
+        if (fallbackUsdPrice > 0 && DateTimeOffset.UtcNow < _nextLookupAt)
+        {
+            return fallbackUsdPrice;
         }
 
         await _gate.WaitAsync(cancellationToken);
@@ -163,12 +170,20 @@ public sealed class TonPriceClient(HttpClient httpClient, ILogger<TonPriceClient
                 return _cachedUsdPrice.Value;
             }
 
+            if (fallbackUsdPrice > 0 && DateTimeOffset.UtcNow < _nextLookupAt)
+            {
+                return fallbackUsdPrice;
+            }
+
             using var request = new HttpRequestMessage(HttpMethod.Get, PriceUri);
             request.Headers.UserAgent.ParseAdd("call-for-me/1.0");
             using var response = await httpClient.SendAsync(request, cancellationToken);
             if (!response.IsSuccessStatusCode)
             {
                 logger.LogWarning("TON price API returned HTTP {StatusCode}.", (int)response.StatusCode);
+                _nextLookupAt = DateTimeOffset.UtcNow.Add(response.StatusCode == HttpStatusCode.TooManyRequests
+                    ? TimeSpan.FromMinutes(30)
+                    : TimeSpan.FromMinutes(5));
                 return fallbackUsdPrice;
             }
 
@@ -181,15 +196,18 @@ public sealed class TonPriceClient(HttpClient httpClient, ILogger<TonPriceClient
             {
                 _cachedUsdPrice = price;
                 _cachedAt = DateTimeOffset.UtcNow;
+                _nextLookupAt = DateTimeOffset.UtcNow.AddMinutes(2);
                 return price;
             }
 
             logger.LogWarning("TON price API returned an unexpected response shape.");
+            _nextLookupAt = DateTimeOffset.UtcNow.AddMinutes(5);
             return fallbackUsdPrice;
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             logger.LogWarning(exception, "TON price lookup failed.");
+            _nextLookupAt = DateTimeOffset.UtcNow.AddMinutes(5);
             return fallbackUsdPrice;
         }
         finally

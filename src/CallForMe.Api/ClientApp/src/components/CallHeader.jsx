@@ -1,8 +1,18 @@
 import { Icon } from "./Dialog.jsx";
-import { callDurationSeconds, callStatusMeta, contactName, isFailedCall, isLive, statusName } from "../utils/callState.js";
-import { formatDuration, formatPhone } from "../utils/format.js";
+import { callDurationSeconds, callStatusMeta, contactName, isFailedCall, isLive } from "../utils/callState.js";
+import { callPrice } from "../utils/callMetrics.js";
+import { formatBalance, formatDuration, formatPhone } from "../utils/format.js";
 import { callLanguageName } from "../data/languages.js";
 import { useI18n } from "../i18n/I18nContext.jsx";
+
+function callCostCredits(call, config, duration) {
+  if (!call) return null;
+  const pricePerMinute = callPrice(config);
+  if (!Number.isFinite(pricePerMinute) || pricePerMinute <= 0) return null;
+
+  const paidMinutes = Math.max(1, Math.ceil(Math.max(0, Number(duration) || 0) / 60));
+  return paidMinutes * pricePerMinute;
+}
 
 export function CallHeader({ call, config, elapsedSeconds }) {
   const { t } = useI18n();
@@ -10,6 +20,7 @@ export function CallHeader({ call, config, elapsedSeconds }) {
   const status = callStatusMeta(call, t);
   const duration = live ? elapsedSeconds : callDurationSeconds(call);
   const timer = live ? formatDuration(duration) || "00:00" : (duration && duration > 0 ? formatDuration(duration) : "");
+  const cost = callCostCredits(call, config, duration);
   const goal = isFailedCall(call)
     ? call.error
     : call?.prompt || (config.readyForRealCalls ? t("call.selectNumberGoal") : (config.setupReason || t("setup.finishBeforeCall")));
@@ -35,6 +46,7 @@ export function CallHeader({ call, config, elapsedSeconds }) {
       <div className="call-state">
         <span className="live-label"><i /><span>{call ? status.text : t("call.waiting")}</span></span>
         <strong>{timer}</strong>
+        {cost ? <small className="call-cost">{t("call.costCredits", { amount: formatBalance(cost) })}</small> : null}
         <div className="mini-eq" aria-hidden="true">
           <span /><span /><span /><span /><span />
         </div>

@@ -1,9 +1,18 @@
 import { useState } from "react";
 import { Icon } from "../Dialog.jsx";
 import { useI18n } from "../../i18n/I18nContext.jsx";
-import { formatBalance } from "../../utils/format.js";
+import { formatBalance, formatShortDate } from "../../utils/format.js";
 
-export function PromoSettings({ promoCodes, onCreate, onToggle }) {
+function userNameByClientId(users, clientId) {
+  const id = String(clientId || "");
+  if (!id.startsWith("user-")) return id || "-";
+
+  const normalized = id.slice(5).toLowerCase();
+  const user = (users || []).find(item => String(item.id || "").replaceAll("-", "").toLowerCase() === normalized);
+  return user?.username || id;
+}
+
+export function PromoSettings({ users, promoCodes, onCreate, onToggle }) {
   const { t } = useI18n();
   const [code, setCode] = useState("");
   const [amount, setAmount] = useState(100);
@@ -49,6 +58,18 @@ export function PromoSettings({ promoCodes, onCreate, onToggle }) {
               <div>
                 <strong>{item.code}</strong>
                 <span>{t("admin.promoActivations", { amount: formatBalance(item.amount), limit: limitText })}</span>
+                {(item.redemptions || []).length ? (
+                  <div className="promo-redemption-list" aria-label={t("admin.promoUsedBy")}>
+                    {item.redemptions.map(redemption => (
+                      <span key={redemption.id} className="promo-redemption-item">
+                        <strong>{userNameByClientId(users, redemption.clientId)}</strong>
+                        <small>{formatBalance(redemption.amount)} · {formatShortDate(redemption.createdAt)}</small>
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <small className="promo-redemption-empty">{t("admin.promoNoRedemptions")}</small>
+                )}
               </div>
               <button type="button" className="secondary-button" onClick={() => onToggle(item.id, !item.active)}>
                 <Icon>{item.active ? "block" : "check_circle"}</Icon>

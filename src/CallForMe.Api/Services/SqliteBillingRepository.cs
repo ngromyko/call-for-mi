@@ -46,7 +46,13 @@ public sealed class SqliteBillingRepository : IBillingRepository
             promoCodes.Add(ReadPromoCodeView(reader));
         }
 
-        return promoCodes;
+        var redemptionsByPromo = await ListPromoRedemptionsAsync(connection, cancellationToken);
+        return promoCodes
+            .Select(code => code with
+            {
+                Redemptions = redemptionsByPromo.TryGetValue(code.Id, out var redemptions) ? redemptions : []
+            })
+            .ToList();
     }
 
     public async Task<(BalanceView? Balance, string? Error)> DebitBalanceAsync(
@@ -395,6 +401,29 @@ public sealed class SqliteBillingRepository : IBillingRepository
         return await reader.ReadAsync(cancellationToken) ? ReadTonPaymentView(reader) : null;
     }
 
+    private static async Task<Dictionary<Guid, IReadOnlyList<PromoRedemptionView>>> ListPromoRedemptionsAsync(
+        SqliteConnection connection,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT id, promo_code_id, code, client_id, amount, created_at
+            FROM promo_redemptions
+            ORDER BY created_at DESC
+            """;
+
+        var items = new List<PromoRedemptionView>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            items.Add(ReadPromoRedemptionView(reader));
+        }
+
+        return items
+            .GroupBy(item => item.PromoCodeId)
+            .ToDictionary(group => group.Key, group => (IReadOnlyList<PromoRedemptionView>)group.ToList());
+    }
+
     private static bool IsReadyToConfirm(DateTimeOffset receivedAt) =>
         DateTimeOffset.UtcNow - receivedAt >= TonConfirmationWindow;
 
@@ -474,6 +503,15 @@ public sealed class SqliteBillingRepository : IBillingRepository
         reader.IsDBNull(reader.GetOrdinal("max_redemptions")) ? null : reader.GetInt32(reader.GetOrdinal("max_redemptions")),
         reader.GetInt32(reader.GetOrdinal("active")) == 1,
         reader.IsDBNull(reader.GetOrdinal("expires_at")) ? null : DateTimeOffset.Parse(reader.GetString(reader.GetOrdinal("expires_at"))),
+        DateTimeOffset.Parse(reader.GetString(reader.GetOrdinal("created_at"))),
+        []);
+
+    private static PromoRedemptionView ReadPromoRedemptionView(SqliteDataReader reader) => new(
+        Guid.Parse(reader.GetString(reader.GetOrdinal("id"))),
+        Guid.Parse(reader.GetString(reader.GetOrdinal("promo_code_id"))),
+        reader.GetString(reader.GetOrdinal("code")),
+        reader.GetString(reader.GetOrdinal("client_id")),
+        StringToDecimal(reader.GetString(reader.GetOrdinal("amount"))),
         DateTimeOffset.Parse(reader.GetString(reader.GetOrdinal("created_at"))));
 
     private static TonPaymentView ReadTonPaymentView(SqliteDataReader reader) => new(

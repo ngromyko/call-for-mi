@@ -358,7 +358,8 @@ public sealed class JsonBillingRepository : IBillingRepository
             code.MaxRedemptions,
             code.Active,
             code.ExpiresAt,
-            code.CreatedAt);
+            code.CreatedAt,
+            []);
 
     private static BalanceView ToBalanceView(ClientBalance balance) => new(balance.ClientId, balance.Balance);
 

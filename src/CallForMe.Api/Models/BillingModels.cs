@@ -60,6 +60,15 @@ public sealed record PromoCodeView(
     int? MaxRedemptions,
     bool Active,
     DateTimeOffset? ExpiresAt,
+    DateTimeOffset CreatedAt,
+    IReadOnlyList<PromoRedemptionView> Redemptions);
+
+public sealed record PromoRedemptionView(
+    Guid Id,
+    Guid PromoCodeId,
+    string Code,
+    string ClientId,
+    decimal Amount,
     DateTimeOffset CreatedAt);
 
 public sealed record BalanceView(string ClientId, decimal Balance);
