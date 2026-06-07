@@ -1,9 +1,10 @@
 using System.Net.WebSockets;
+using System.Globalization;
 using System.Security.Claims;
-using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.IO;
 using CallForMe.Api.Contracts;
 using CallForMe.Api.Hubs;
 using CallForMe.Api.Models;
@@ -13,10 +14,11 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Options;
+using QRCoder;
 
-const string AdminCookieName = "callforme_admin";
 const string UserCookieScheme = "callforme_user";
-const decimal CallPrice = 100m;
+const string AdminUsername = "admin";
+const decimal CallPrice = CallPricing.CreditsPerMinuteUsd;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -26,6 +28,8 @@ builder.Services.Configure<TwilioOptions>(builder.Configuration.GetSection(Twili
 builder.Services.Configure<AiOptions>(builder.Configuration.GetSection(AiOptions.SectionName));
 builder.Services.Configure<StorageOptions>(builder.Configuration.GetSection(StorageOptions.SectionName));
 builder.Services.Configure<AdminOptions>(builder.Configuration.GetSection(AdminOptions.SectionName));
+builder.Services.Configure<TonPaymentsOptions>(builder.Configuration.GetSection(TonPaymentsOptions.SectionName));
+builder.Services.Configure<UsdtPaymentsOptions>(builder.Configuration.GetSection(UsdtPaymentsOptions.SectionName));
 builder.Services.PostConfigure<TwilioOptions>(options =>
 {
     options.AccountSid = FirstPresent(options.AccountSid, "TWILIO_ACCOUNT_SID", "TWILIO__ACCOUNT_SID");
@@ -79,6 +83,7 @@ builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 builder.Services.AddHttpClient<TwilioCallService>();
 builder.Services.AddHttpClient<AiConversationService>();
+builder.Services.AddHttpClient<TonApiClient>();
 builder.Services.AddSingleton<TwilioRequestValidator>();
 builder.Services.AddSingleton<SqliteDatabase>();
 builder.Services.AddSingleton<ICallRepository, SqliteCallRepository>();
@@ -88,6 +93,9 @@ builder.Services.AddSingleton<ActiveRelayRegistry>();
 builder.Services.AddSingleton<ConversationOrchestrator>();
 builder.Services.AddSingleton<CallBillingService>();
 builder.Services.AddSingleton<TwilioCostRefreshService>();
+builder.Services.AddSingleton<TonDepositMonitor>();
+builder.Services.AddHostedService(provider => provider.GetRequiredService<TonDepositMonitor>());
+builder.Services.AddHostedService<CallMinuteBillingService>();
 builder.Services.AddSingleton<LocalSettingsWriter>();
 
 var app = builder.Build();
@@ -124,7 +132,13 @@ app.MapGet("/api", (IOptionsMonitor<TwilioOptions> twilio, IOptionsMonitor<AiOpt
         "POST /api/calls/{id}/autopilot",
         "POST /api/calls/{id}/end",
         "GET /api/balance/{clientId}",
+        "GET /api/ton/deposit-info",
+        "GET /api/ton/deposits",
+        "POST /api/ton/refresh",
+        "GET /api/usdt/deposit-info",
         "POST /api/promocodes/redeem",
+        "GET /api/admin/users",
+        "GET /api/admin/ton-payments",
         "GET /api/admin/promocodes",
         "POST /api/admin/promocodes",
         "GET /api/auth/me",
@@ -204,42 +218,18 @@ app.MapGet("/api/admin/status", (HttpRequest request, IOptionsMonitor<AdminOptio
     authenticated = IsAdmin(request, admin.CurrentValue)
 }));
 
-app.MapPost("/api/admin/login", (
-    AdminLoginRequest request,
-    HttpContext context,
-    IOptionsMonitor<AdminOptions> admin) =>
+app.MapGet("/api/admin/users", async (
+    HttpRequest request,
+    IOptionsMonitor<AdminOptions> admin,
+    IUserRepository users,
+    CancellationToken cancellationToken) =>
 {
-    var options = admin.CurrentValue;
-    if (!options.IsConfigured)
+    if (!IsAdmin(request, admin.CurrentValue))
     {
-        return Results.Problem(
-            title: "Admin password is not configured",
-            detail: "Set Admin:Password in appsettings.Local.json or CALLFORME_ADMIN_PASSWORD.",
-            statusCode: StatusCodes.Status503ServiceUnavailable);
+        return AdminRequired();
     }
 
-    if (!SecretEquals(request.Password, options.Password))
-    {
-        return Results.Problem(
-            title: "Admin login failed",
-            detail: "Неверный admin пароль.",
-            statusCode: StatusCodes.Status401Unauthorized);
-    }
-
-    context.Response.Cookies.Append(AdminCookieName, AdminToken(options), new CookieOptions
-    {
-        HttpOnly = true,
-        Secure = context.Request.IsHttps,
-        SameSite = SameSiteMode.Lax,
-        Expires = DateTimeOffset.UtcNow.AddHours(12)
-    });
-    return Results.Ok(new { authenticated = true });
-});
-
-app.MapPost("/api/admin/logout", (HttpContext context) =>
-{
-    context.Response.Cookies.Delete(AdminCookieName);
-    return Results.NoContent();
+    return Results.Ok(await users.ListWithStatsAsync(cancellationToken));
 });
 
 app.MapGet("/api/balance/{clientId}", async (
@@ -276,6 +266,190 @@ app.MapPost("/api/promocodes/redeem", async (
     return balance is null
         ? Results.Problem(title: "Промокод не применён", detail: error, statusCode: StatusCodes.Status400BadRequest)
         : Results.Ok(balance);
+});
+
+app.MapGet("/api/ton/deposits", async (
+    HttpContext context,
+    IBillingRepository billing,
+    CancellationToken cancellationToken) =>
+{
+    var userId = CurrentUserId(context);
+    if (userId is null)
+    {
+        return UserRequired();
+    }
+
+    return Results.Ok(await billing.ListTonPaymentsAsync(BalanceClientId(userId.Value), cancellationToken));
+});
+
+app.MapGet("/api/ton/deposit-info", (
+    HttpContext context,
+    IOptionsMonitor<TonPaymentsOptions> ton) =>
+{
+    var userId = CurrentUserId(context);
+    if (userId is null)
+    {
+        return UserRequired();
+    }
+
+    var options = ton.CurrentValue;
+    var clientId = BalanceClientId(userId.Value);
+    var comment = TonDepositComment.FromClientId(clientId);
+    if (!options.IsConfigured)
+    {
+        return Results.Ok(new
+        {
+            enabled = false,
+            walletAddress = "",
+            comment,
+            creditsPerTon = options.CreditsPerTon,
+            minTonAmount = options.MinTonAmount,
+            paymentLink = ""
+        });
+    }
+
+    var wallet = options.WalletAddress.Trim();
+    return Results.Ok(new
+    {
+        enabled = true,
+        walletAddress = wallet,
+        comment,
+        creditsPerTon = options.CreditsPerTon,
+        minTonAmount = options.MinTonAmount,
+        paymentLink = CreateTonTransferLink(wallet, options.MinTonAmount, comment)
+    });
+});
+
+app.MapGet("/api/usdt/deposit-info", (
+    HttpContext context,
+    IOptionsMonitor<UsdtPaymentsOptions> usdt) =>
+{
+    var userId = CurrentUserId(context);
+    if (userId is null)
+    {
+        return UserRequired();
+    }
+
+    var options = usdt.CurrentValue;
+    var clientId = BalanceClientId(userId.Value);
+    var comment = TonDepositComment.FromClientId(clientId);
+    if (!options.IsConfigured)
+    {
+        return Results.Ok(new
+        {
+            enabled = false,
+            walletAddress = "",
+            network = string.IsNullOrWhiteSpace(options.Network) ? "TRC20" : options.Network.Trim(),
+            comment,
+            creditsPerUsdt = options.CreditsPerUsdt,
+            minUsdtAmount = options.MinUsdtAmount
+        });
+    }
+
+    return Results.Ok(new
+    {
+        enabled = true,
+        walletAddress = options.WalletAddress.Trim(),
+        network = string.IsNullOrWhiteSpace(options.Network) ? "TRC20" : options.Network.Trim(),
+        comment,
+        creditsPerUsdt = options.CreditsPerUsdt,
+        minUsdtAmount = options.MinUsdtAmount
+    });
+});
+
+app.MapPost("/api/ton/refresh", async (
+    HttpContext context,
+    TonDepositMonitor monitor,
+    IBillingRepository billing,
+    CancellationToken cancellationToken) =>
+{
+    var userId = CurrentUserId(context);
+    if (userId is null)
+    {
+        return UserRequired();
+    }
+
+    await monitor.CheckOnceAsync(cancellationToken);
+    var clientId = BalanceClientId(userId.Value);
+    return Results.Ok(new
+    {
+        balance = await billing.GetBalanceAsync(clientId, cancellationToken),
+        deposits = await billing.ListTonPaymentsAsync(clientId, cancellationToken)
+    });
+});
+
+app.MapGet("/api/ton/qr", (
+    HttpContext context,
+    string? amount,
+    IOptionsMonitor<TonPaymentsOptions> ton) =>
+{
+    var userId = CurrentUserId(context);
+    if (userId is null)
+    {
+        return UserRequired();
+    }
+
+    var options = ton.CurrentValue;
+    if (!options.IsConfigured)
+    {
+        return Results.Problem(
+            title: "TON payments are not configured",
+            detail: "TON-пополнение пока не настроено.",
+            statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
+
+    var tonAmount = options.MinTonAmount;
+    if (!string.IsNullOrWhiteSpace(amount) &&
+        decimal.TryParse(amount, NumberStyles.Number, CultureInfo.InvariantCulture, out var parsed))
+    {
+        tonAmount = Math.Max(parsed, options.MinTonAmount);
+    }
+
+    var clientId = BalanceClientId(userId.Value);
+    var comment = TonDepositComment.FromClientId(clientId);
+    var transferLink = CreateTonTransferLink(options.WalletAddress.Trim(), tonAmount, comment);
+    using var generator = new QRCodeGenerator();
+    using var data = generator.CreateQrCode(transferLink, QRCodeGenerator.ECCLevel.Q);
+    var qrCode = new PngByteQRCode(data);
+    var bytes = qrCode.GetGraphic(8);
+    return Results.File(bytes, "image/png");
+});
+
+app.MapGet("/api/usdt/qr", (
+    HttpContext context,
+    string? amount,
+    IOptionsMonitor<UsdtPaymentsOptions> usdt) =>
+{
+    var userId = CurrentUserId(context);
+    if (userId is null)
+    {
+        return UserRequired();
+    }
+
+    var options = usdt.CurrentValue;
+    if (!options.IsConfigured)
+    {
+        return Results.Problem(
+            title: "USDT payments are not configured",
+            detail: "USDT-пополнение пока не настроено.",
+            statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
+
+    var usdtAmount = options.MinUsdtAmount;
+    if (!string.IsNullOrWhiteSpace(amount) &&
+        decimal.TryParse(amount, NumberStyles.Number, CultureInfo.InvariantCulture, out var parsed))
+    {
+        usdtAmount = Math.Max(parsed, options.MinUsdtAmount);
+    }
+
+    var clientId = BalanceClientId(userId.Value);
+    var comment = TonDepositComment.FromClientId(clientId);
+    var paymentText = CreateUsdtPaymentText(options.WalletAddress.Trim(), options.Network, usdtAmount, comment);
+    using var generator = new QRCodeGenerator();
+    using var data = generator.CreateQrCode(paymentText, QRCodeGenerator.ECCLevel.Q);
+    var qrCode = new PngByteQRCode(data);
+    var bytes = qrCode.GetGraphic(8);
+    return Results.File(bytes, "image/png");
 });
 
 app.MapGet("/api/admin/promocodes", async (
@@ -336,18 +510,35 @@ app.MapPatch("/api/admin/promocodes/{id:guid}", async (
     return promo is null ? Results.NotFound() : Results.Ok(promo);
 });
 
-app.MapGet("/api/config", (HttpRequest request, IOptionsMonitor<TwilioOptions> twilio, IOptionsMonitor<AiOptions> ai, IOptionsMonitor<AdminOptions> admin) =>
+app.MapGet("/api/admin/ton-payments", async (
+    HttpRequest request,
+    IOptionsMonitor<AdminOptions> admin,
+    IBillingRepository billing,
+    CancellationToken cancellationToken) =>
+{
+    if (!IsAdmin(request, admin.CurrentValue))
+    {
+        return AdminRequired();
+    }
+
+    return Results.Ok(await billing.ListTonPaymentsAsync(null, cancellationToken));
+});
+
+app.MapGet("/api/config", (HttpRequest request, IOptionsMonitor<TwilioOptions> twilio, IOptionsMonitor<AiOptions> ai, IOptionsMonitor<AdminOptions> admin, IOptionsMonitor<TonPaymentsOptions> ton, IOptionsMonitor<UsdtPaymentsOptions> usdt) =>
 {
     var twilioOptions = twilio.CurrentValue;
     var aiOptions = ai.CurrentValue;
     var twilioCredentialsOk = twilioOptions.CredentialsValid is not false;
     var readyForRealCalls = twilioOptions.IsConfigured && aiOptions.IsConfigured && twilioCredentialsOk;
     var setupReason = SetupReason(twilioOptions, aiOptions);
+    var tonOptions = ton.CurrentValue;
+    var usdtOptions = usdt.CurrentValue;
     return Results.Ok(new
     {
         twilioEnabled = twilioOptions.IsConfigured,
         aiEnabled = aiOptions.IsConfigured,
         readyForRealCalls,
+        callPricePerMinute = CallPrice,
         setupReason,
         twilioCredentialsValid = twilioOptions.CredentialsValid,
         twilioMissing = twilioOptions.Missing(),
@@ -359,7 +550,22 @@ app.MapGet("/api/config", (HttpRequest request, IOptionsMonitor<TwilioOptions> t
         aiModel = aiOptions.Model,
         hasAiKey = !string.IsNullOrWhiteSpace(aiOptions.ApiKey),
         adminConfigured = admin.CurrentValue.IsConfigured,
-        adminAuthenticated = IsAdmin(request, admin.CurrentValue)
+        adminAuthenticated = IsAdmin(request, admin.CurrentValue),
+        tonPayments = new
+        {
+            enabled = tonOptions.IsConfigured,
+            walletAddress = tonOptions.WalletAddress,
+            creditsPerTon = tonOptions.CreditsPerTon,
+            minTonAmount = tonOptions.MinTonAmount
+        },
+        usdtPayments = new
+        {
+            enabled = usdtOptions.IsConfigured,
+            walletAddress = usdtOptions.WalletAddress,
+            network = usdtOptions.Network,
+            creditsPerUsdt = usdtOptions.CreditsPerUsdt,
+            minUsdtAmount = usdtOptions.MinUsdtAmount
+        }
     });
 });
 
@@ -469,6 +675,88 @@ app.MapPost("/api/config/twilio/check", async (
     }
 });
 
+app.MapPost("/api/config/ton", async (
+    HttpRequest httpRequest,
+    SaveTonPaymentsSettingsRequest request,
+    IOptionsMonitor<AdminOptions> admin,
+    LocalSettingsWriter writer,
+    CancellationToken cancellationToken) =>
+{
+    if (!IsAdmin(httpRequest, admin.CurrentValue))
+    {
+        return AdminRequired();
+    }
+
+    var wallet = request.WalletAddress?.Trim() ?? "";
+    var errors = new Dictionary<string, string[]>();
+    if (!TonPaymentsOptions.IsLikelyTonAddress(wallet))
+    {
+        errors["walletAddress"] = ["Введите TON wallet address."];
+    }
+
+    if (request.CreditsPerTon <= 0)
+    {
+        errors["creditsPerTon"] = ["Курс должен быть больше нуля."];
+    }
+
+    if (request.MinTonAmount <= 0)
+    {
+        errors["minTonAmount"] = ["Минимальная сумма должна быть больше нуля."];
+    }
+
+    if (errors.Count > 0)
+    {
+        return Results.ValidationProblem(errors);
+    }
+
+    await writer.SaveTonPaymentsAsync(wallet, request.CreditsPerTon, request.MinTonAmount, cancellationToken);
+    return Results.Ok(new { tonPaymentsEnabled = true });
+});
+
+app.MapPost("/api/config/usdt", async (
+    HttpRequest httpRequest,
+    SaveUsdtPaymentsSettingsRequest request,
+    IOptionsMonitor<AdminOptions> admin,
+    LocalSettingsWriter writer,
+    CancellationToken cancellationToken) =>
+{
+    if (!IsAdmin(httpRequest, admin.CurrentValue))
+    {
+        return AdminRequired();
+    }
+
+    var wallet = request.WalletAddress?.Trim() ?? "";
+    var network = request.Network?.Trim() ?? "";
+    var errors = new Dictionary<string, string[]>();
+    if (!UsdtPaymentsOptions.IsLikelyWalletAddress(wallet))
+    {
+        errors["walletAddress"] = ["Введите USDT wallet address."];
+    }
+
+    if (string.IsNullOrWhiteSpace(network) || network.Length > 32)
+    {
+        errors["network"] = ["Введите сеть USDT, например TRC20 или ERC20."];
+    }
+
+    if (request.CreditsPerUsdt <= 0)
+    {
+        errors["creditsPerUsdt"] = ["Курс должен быть больше нуля."];
+    }
+
+    if (request.MinUsdtAmount <= 0)
+    {
+        errors["minUsdtAmount"] = ["Минимальная сумма должна быть больше нуля."];
+    }
+
+    if (errors.Count > 0)
+    {
+        return Results.ValidationProblem(errors);
+    }
+
+    await writer.SaveUsdtPaymentsAsync(wallet, network, request.CreditsPerUsdt, request.MinUsdtAmount, cancellationToken);
+    return Results.Ok(new { usdtPaymentsEnabled = true });
+});
+
 app.MapGet("/api/calls", async (HttpContext context, ICallRepository repository, CancellationToken cancellationToken) =>
 {
     var userId = CurrentUserId(context);
@@ -520,7 +808,7 @@ app.MapPost("/api/calls", async (
     {
         return Results.Problem(
             title: "Balance required",
-            detail: $"Один звонок стоит {CallPrice:0}. Пополните баланс промокодом, чтобы начать звонок.",
+            detail: $"Одна минута стоит {CallPrice:0.00} USD (кредиты). Пополните баланс, чтобы начать звонок.",
             statusCode: StatusCodes.Status402PaymentRequired);
     }
 
@@ -561,7 +849,7 @@ app.MapPost("/api/calls", async (
     {
         return Results.Problem(
             title: "Balance required",
-            detail: debit.Error ?? $"Один звонок стоит {CallPrice:0}.",
+            detail: debit.Error ?? $"Одна минута стоит {CallPrice:0.00} USD (кредиты).",
             statusCode: StatusCodes.Status402PaymentRequired);
     }
 
@@ -794,6 +1082,8 @@ app.MapPost("/twilio/status", async (
             stored.CompletedAt ??= now;
         }
 
+        AddTerminalStatusMessage(stored, now);
+
         if (ShouldClearCallError(stored.Status))
         {
             stored.Error = null;
@@ -816,9 +1106,13 @@ app.MapPost("/twilio/status", async (
 
     await hub.Clients.Group(CallHub.GroupName(call.Id)).SendAsync("CallUpdated", call, cancellationToken);
 
-    if (call.Status == CallStatus.Completed)
+    if (!IsLiveStatus(call.Status))
     {
         costRefresh.Queue(call.Id);
+    }
+
+    if (call.Status == CallStatus.Completed)
+    {
         await orchestrator.EnsureSummaryAsync(call.Id, cancellationToken);
     }
 
@@ -901,6 +1195,19 @@ app.Map("/twilio/conversation-relay", async context =>
 });
 
 app.MapHub<CallHub>("/hubs/calls");
+var adminHtmlPath = Path.Combine(app.Environment.WebRootPath, "index.html");
+app.MapGet("/admin", () => File.Exists(adminHtmlPath)
+    ? Results.File(adminHtmlPath, "text/html")
+    : Results.Problem(
+        title: "Admin page is unavailable",
+        detail: "Не найден файл wwwroot/index.html.",
+        statusCode: StatusCodes.Status500InternalServerError));
+app.MapGet("/admin/{*path}", () => File.Exists(adminHtmlPath)
+    ? Results.File(adminHtmlPath, "text/html")
+    : Results.Problem(
+        title: "Admin page is unavailable",
+        detail: "Не найден файл wwwroot/index.html.",
+        statusCode: StatusCodes.Status500InternalServerError));
 
 app.Run();
 
@@ -916,7 +1223,7 @@ static string MaskSecret(string value)
 
 static IResult AdminRequired() => Results.Problem(
     title: "Admin required",
-    detail: "Откройте настройки как админ.",
+    detail: "Войдите под пользователем admin.",
     statusCode: StatusCodes.Status401Unauthorized);
 
 static IResult UserRequired() => Results.Problem(
@@ -931,14 +1238,10 @@ static bool IsAdmin(HttpRequest request, AdminOptions admin)
         return false;
     }
 
-    return request.Cookies.TryGetValue(AdminCookieName, out var cookie) &&
-        SecretEquals(cookie, AdminToken(admin));
-}
-
-static string AdminToken(AdminOptions admin)
-{
-    using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(admin.Password));
-    return Convert.ToBase64String(hmac.ComputeHash(Encoding.UTF8.GetBytes("call-for-me-admin-session-v1")));
+    return string.Equals(
+        request.HttpContext.User.FindFirstValue(ClaimTypes.Name),
+        AdminUsername,
+        StringComparison.Ordinal);
 }
 
 static async Task SignInUserAsync(HttpContext context, UserAccountView user)
@@ -980,23 +1283,28 @@ static async Task<bool> CanAccessCallAsync(
     return call is not null && CanAccessCall(call, CurrentUserId(context));
 }
 
-static bool SecretEquals(string? left, string? right)
-{
-    if (left is null || right is null)
-    {
-        return false;
-    }
-
-    var leftBytes = Encoding.UTF8.GetBytes(left);
-    var rightBytes = Encoding.UTF8.GetBytes(right);
-    return leftBytes.Length == rightBytes.Length &&
-        CryptographicOperations.FixedTimeEquals(leftBytes, rightBytes);
-}
-
 static bool IsValidClientId(string? clientId) =>
     !string.IsNullOrWhiteSpace(clientId) &&
     clientId.Length <= 96 &&
     clientId.All(character => char.IsLetterOrDigit(character) || character is '-' or '_');
+
+static string CreateTonTransferLink(string walletAddress, decimal tonAmount, string comment)
+{
+    var nanotons = decimal.ToInt64(decimal.Round(tonAmount * 1_000_000_000m, 0));
+    return $"ton://transfer/{Uri.EscapeDataString(walletAddress)}?amount={nanotons}&text={Uri.EscapeDataString(comment)}";
+}
+
+static string CreateUsdtPaymentText(string walletAddress, string network, decimal usdtAmount, string comment)
+{
+    return string.Join('\n', new[]
+    {
+        "USDT payment",
+        $"Network: {(string.IsNullOrWhiteSpace(network) ? "TRC20" : network.Trim())}",
+        $"Address: {walletAddress}",
+        $"Amount: {usdtAmount.ToString(CultureInfo.InvariantCulture)} USDT",
+        $"Comment: {comment}"
+    });
+}
 
 static Dictionary<string, string[]> ValidateRedeemPromoCode(RedeemPromoCodeRequest request)
 {
@@ -1101,6 +1409,38 @@ static bool IsLiveStatus(CallStatus status) => status is
     CallStatus.Ringing or
     CallStatus.InProgress;
 
+static void AddTerminalStatusMessage(CallSession call, DateTimeOffset timestamp)
+{
+    if (IsLiveStatus(call.Status) || call.Status == CallStatus.Completed)
+    {
+        return;
+    }
+
+    var text = call.Status switch
+    {
+        CallStatus.NoAnswer => "Собеседник не поднял трубку.",
+        CallStatus.Busy => "Линия была занята.",
+        CallStatus.Canceled => "Звонок отменён до разговора.",
+        CallStatus.Failed => string.IsNullOrWhiteSpace(call.Error)
+            ? "Звонок не удалось выполнить."
+            : $"Звонок не удалось выполнить: {call.Error}",
+        _ => ""
+    };
+    if (string.IsNullOrWhiteSpace(text) ||
+        call.Transcript.Any(entry => entry.Speaker == TranscriptSpeaker.System && entry.Text == text))
+    {
+        return;
+    }
+
+    call.Transcript.Add(new TranscriptEntry
+    {
+        Speaker = TranscriptSpeaker.System,
+        Text = text,
+        Source = "twilio-status",
+        Timestamp = timestamp
+    });
+}
+
 static string CreateDisplayName(string? displayName, string prompt)
 {
     if (!string.IsNullOrWhiteSpace(displayName))
@@ -1184,3 +1524,14 @@ public sealed record SaveTwilioSettingsRequest(
     string AuthToken,
     string FromNumber,
     string PublicBaseUrl);
+
+public sealed record SaveTonPaymentsSettingsRequest(
+    string WalletAddress,
+    decimal CreditsPerTon,
+    decimal MinTonAmount);
+
+public sealed record SaveUsdtPaymentsSettingsRequest(
+    string WalletAddress,
+    string Network,
+    decimal CreditsPerUsdt,
+    decimal MinUsdtAmount);

@@ -14,6 +14,17 @@ public interface IBillingRepository
     Task<PromoCodeView> CreatePromoCodeAsync(string code, decimal amount, int? maxRedemptions, DateTimeOffset? expiresAt, CancellationToken cancellationToken);
     Task<PromoCodeView?> SetPromoCodeActiveAsync(Guid id, bool active, CancellationToken cancellationToken);
     Task<(BalanceView? Balance, string? Error)> RedeemPromoCodeAsync(string clientId, string code, CancellationToken cancellationToken);
+    Task<IReadOnlyList<TonPaymentView>> ListTonPaymentsAsync(string? clientId, CancellationToken cancellationToken);
+    Task<(TonPaymentView Payment, BalanceView Balance, bool Created)> RecordTonPaymentAsync(
+        string externalId,
+        string clientId,
+        string comment,
+        string walletAddress,
+        string? senderAddress,
+        decimal tonAmount,
+        decimal creditsAmount,
+        DateTimeOffset receivedAt,
+        CancellationToken cancellationToken);
 }
 
 public sealed class JsonBillingRepository : IBillingRepository
@@ -219,6 +230,69 @@ public sealed class JsonBillingRepository : IBillingRepository
         }
     }
 
+    public async Task<IReadOnlyList<TonPaymentView>> ListTonPaymentsAsync(string? clientId, CancellationToken cancellationToken)
+    {
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            var state = await LoadAsync(cancellationToken);
+            return state.TonPayments
+                .Where(payment => string.IsNullOrWhiteSpace(clientId) || payment.ClientId == clientId)
+                .OrderByDescending(payment => payment.CreatedAt)
+                .Select(ToTonPaymentView)
+                .ToList();
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public async Task<(TonPaymentView Payment, BalanceView Balance, bool Created)> RecordTonPaymentAsync(
+        string externalId,
+        string clientId,
+        string comment,
+        string walletAddress,
+        string? senderAddress,
+        decimal tonAmount,
+        decimal creditsAmount,
+        DateTimeOffset receivedAt,
+        CancellationToken cancellationToken)
+    {
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            var state = await LoadAsync(cancellationToken);
+            var existing = state.TonPayments.FirstOrDefault(candidate => candidate.ExternalId == externalId);
+            if (existing is not null)
+            {
+                return (ToTonPaymentView(existing), ToBalanceView(GetOrCreateBalance(state, existing.ClientId)), false);
+            }
+
+            var payment = new TonPayment
+            {
+                ExternalId = externalId,
+                ClientId = clientId,
+                Comment = comment,
+                WalletAddress = walletAddress,
+                SenderAddress = senderAddress,
+                TonAmount = tonAmount,
+                CreditsAmount = creditsAmount,
+                ReceivedAt = receivedAt
+            };
+            var balance = GetOrCreateBalance(state, payment.ClientId);
+            balance.Balance += payment.CreditsAmount;
+            balance.UpdatedAt = DateTimeOffset.UtcNow;
+            state.TonPayments.Add(payment);
+            await SaveAsync(state, cancellationToken);
+            return (ToTonPaymentView(payment), ToBalanceView(balance), true);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     private async Task<BillingState> LoadAsync(CancellationToken cancellationToken)
     {
         if (!File.Exists(_path))
@@ -267,6 +341,18 @@ public sealed class JsonBillingRepository : IBillingRepository
             code.CreatedAt);
 
     private static BalanceView ToBalanceView(ClientBalance balance) => new(balance.ClientId, balance.Balance);
+
+    private static TonPaymentView ToTonPaymentView(TonPayment payment) => new(
+        payment.Id,
+        payment.ClientId,
+        payment.ExternalId,
+        payment.Comment,
+        payment.WalletAddress,
+        payment.SenderAddress,
+        payment.TonAmount,
+        payment.CreditsAmount,
+        payment.CreatedAt,
+        payment.ReceivedAt);
 
     public static string NormalizeCode(string code) => code.Trim().ToUpperInvariant();
 }

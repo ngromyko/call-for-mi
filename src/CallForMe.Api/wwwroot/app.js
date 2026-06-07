@@ -1,11 +1,14 @@
 const state = {
   calls: [],
   activeCall: null,
-  mobileView: "call",
+  mobileView: (window.location?.pathname || "/").replace(/\/+$/, "").toLowerCase() === "/admin" ? "admin" : "call",
   authMode: "login",
   auth: { authenticated: false, user: null, balanceClientId: null },
   config: { twilioEnabled: false, aiEnabled: false, readyForRealCalls: false },
   balance: { clientId: "", balance: 0 },
+  adminUsers: [],
+  tonPayments: [],
+  adminTonPayments: [],
   startedAt: Date.now(),
   toastTimer: null,
   summaryRequests: new Set(),
@@ -15,7 +18,6 @@ const state = {
 };
 
 const demoStartedAt = Date.now() - 9 * 60 * 1000;
-const callPrice = 100;
 
 const demoCall = {
   id: "demo-call",
@@ -152,9 +154,55 @@ function formatDuration(seconds) {
   return `${minutes}:${rest.toString().padStart(2, "0")}`;
 }
 
+function formatShortDate(value) {
+  if (!value) {
+    return "—";
+  }
+
+  return new Intl.DateTimeFormat(undefined, { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(value));
+}
+
+function callPrice() {
+  return Number.isFinite(Number(state.config?.callPricePerMinute))
+    ? Number(state.config.callPricePerMinute)
+    : 0.5;
+}
+
+function formatCreditAmount(value) {
+  const amount = Number(value || 0);
+  return amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
 function formatBalance(value) {
   const amount = Number(value || 0);
-  return Number.isInteger(amount) ? String(amount) : amount.toFixed(2);
+  return Number.isFinite(amount)
+    ? amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    : "0.00";
+}
+
+function formatTon(value) {
+  const amount = Number(value || 0);
+  return amount.toLocaleString(undefined, { maximumFractionDigits: 9 });
+}
+
+function formatUsdt(value) {
+  const amount = Number(value || 0);
+  return amount.toLocaleString(undefined, { maximumFractionDigits: 6 });
+}
+
+function tonTransferLink(walletAddress, tonAmount, comment) {
+  const nanotons = Math.max(0, Math.round(Number(tonAmount || 0) * 1_000_000_000));
+  return `ton://transfer/${encodeURIComponent(walletAddress || "")}?amount=${nanotons}&text=${encodeURIComponent(comment || "")}`;
+}
+
+function tonQrUrl(tonAmount) {
+  const amount = Number(tonAmount || 0);
+  return `/api/ton/qr?amount=${encodeURIComponent(Number.isFinite(amount) ? String(amount) : "0")}`;
+}
+
+function usdtQrUrl(usdtAmount) {
+  const amount = Number(usdtAmount || 0);
+  return `/api/usdt/qr?amount=${encodeURIComponent(Number.isFinite(amount) ? String(amount) : "0")}`;
 }
 
 function getClientId() {
@@ -275,11 +323,16 @@ function contactName(call) {
 }
 
 function isFailedCall(call) {
-  return call?.status === "Failed" || (!!call?.error && call?.status !== "Completed" && !isLive(call));
+  const status = statusName(call?.status);
+  return status === "Failed" || (!!call?.error && status !== "Completed" && !isLive(call));
 }
 
 function isDemoCall(callOrId) {
   return callOrId === demoCall.id || callOrId?.id === demoCall.id || callOrId?.isDemo === true;
+}
+
+function isAdminUser() {
+  return state.auth?.authenticated && state.auth.user?.username?.toLowerCase() === "admin";
 }
 
 function visibleCalls() {
@@ -352,6 +405,9 @@ async function startLiveUpdates() {
       if (isLive(call)) {
         state.startedAt = new Date(call.createdAt).getTime();
       }
+      if (!isLive(call)) {
+        loadBalance().catch(() => {});
+      }
       render();
       return;
     }
@@ -391,7 +447,7 @@ async function startLiveUpdates() {
 
 function renderSetupState() {
   const ready = state.config.readyForRealCalls;
-  const adminAuthenticated = !!state.config.adminAuthenticated;
+  const adminAuthenticated = isAdminUser();
   $("#setupWarning").hidden = ready || !adminAuthenticated;
   $("#newCallButton").disabled = !ready;
   $("#newCallButton").title = ready ? "" : (state.config.setupReason || "Сначала завершите настройки");
@@ -400,27 +456,70 @@ function renderSetupState() {
   const settingsSidebarButton = $("#settingsSidebarButton");
   const mobileSettingsNav = $("#mobileSettingsNav");
   if (settingsSidebarButton) {
-    settingsSidebarButton.hidden = false;
-    settingsSidebarButton.querySelector("span:last-child").textContent = adminAuthenticated ? "Настройки" : "Админ";
+    settingsSidebarButton.hidden = !adminAuthenticated;
   }
   if (mobileSettingsNav) {
-    mobileSettingsNav.hidden = false;
-    const label = mobileSettingsNav.querySelector("span:last-child");
-    if (label) {
-      label.textContent = adminAuthenticated ? "Настройки" : "Админ";
-    }
+    mobileSettingsNav.hidden = !adminAuthenticated;
   }
   const setupText = $("#setupWarning p");
   if (setupText) setupText.textContent = state.config.setupReason || "Проверьте настройки перед звонком.";
 }
 
 function setMobileView(view) {
-  state.mobileView = view === "history" ? "history" : "call";
+  state.mobileView = view === "history" || view === "admin" ? view : "call";
   document.body.classList.toggle("mobile-view-history", state.mobileView === "history");
-  document.body.classList.toggle("mobile-view-call", state.mobileView !== "history");
+  document.body.classList.toggle("mobile-view-admin", state.mobileView === "admin");
+  document.body.classList.toggle("mobile-view-call", state.mobileView === "call");
+  const adminPage = $("#adminPage");
+  const mainSection = $(".main");
+  if (adminPage) {
+    adminPage.hidden = state.mobileView !== "admin";
+  }
+  if (mainSection) {
+    mainSection.hidden = state.mobileView === "admin";
+  }
   document.querySelectorAll("[data-mobile-view]").forEach(button => {
     button.classList.toggle("active", button.dataset.mobileView === state.mobileView);
   });
+}
+
+function normalizeAppPath(pathname = window.location.pathname) {
+  const normalized = (pathname || "/").replace(/\/+$/, "").toLowerCase();
+  return normalized || "/";
+}
+
+function isAdminPath(pathname) {
+  return normalizeAppPath(pathname) === "/admin";
+}
+
+function setRouteState(view, { replace = false } = {}) {
+  const target = view === "admin" ? "/admin" : "/";
+  if (normalizeAppPath() === target) {
+    return;
+  }
+
+  const statePayload = { view };
+  const historyAction = replace ? "replaceState" : "pushState";
+  if (typeof history[historyAction] === "function") {
+    history[historyAction](statePayload, "", target);
+  }
+}
+
+async function syncRouteFromLocation() {
+  state.mobileView = isAdminPath() ? "admin" : "call";
+  if (isAdminPath()) {
+    await openSettingsProtected({ fromRoute: true });
+    return;
+  }
+
+  if (state.mobileView === "admin") {
+    setMobileView("call");
+  }
+}
+
+function closeAdminPanel({ replaceHistory = true } = {}) {
+  setMobileView("call");
+  setRouteState("call", { replace: replaceHistory });
 }
 
 function renderSettings() {
@@ -447,11 +546,21 @@ function renderSettings() {
   $("#twilioAccountSidHint").textContent = config.accountSid ? `Сейчас сохранён: ${config.accountSid}. Для изменения вставьте полный SID.` : "";
   $("#twilioFromNumberInput").value = config.fromNumber || "";
   $("#twilioPublicBaseUrlInput").value = config.publicBaseUrl || "";
-  $("#adminLogoutButton").hidden = !config.adminAuthenticated;
+  const ton = config.tonPayments || {};
+  $("#tonWalletAddressInput").value = ton.walletAddress || "";
+  $("#tonCreditsPerTonInput").value = ton.creditsPerTon || 1000;
+  $("#tonMinAmountInput").value = ton.minTonAmount || 0.1;
+  const usdt = config.usdtPayments || {};
+  $("#usdtWalletAddressInput").value = usdt.walletAddress || "";
+  $("#usdtNetworkInput").value = usdt.network || "TRC20";
+  $("#usdtCreditsPerUsdtInput").value = usdt.creditsPerUsdt || 100;
+  $("#usdtMinAmountInput").value = usdt.minUsdtAmount || 1;
+  renderTonAdminPayments();
 }
 
 function renderBalance() {
   $("#balanceAmount").textContent = formatBalance(state.balance.balance);
+  renderTonTopup();
 }
 
 function renderAuth() {
@@ -470,7 +579,7 @@ function renderPromoCodes(promoCodes = []) {
     return `<article class="promo-admin-item ${code.active ? "" : "disabled"}">
       <div>
         <strong>${escapeHtml(code.code)}</strong>
-        <span>+${escapeHtml(formatBalance(code.amount))} баланса · активации ${escapeHtml(limit)}</span>
+        <span>+${escapeHtml(formatBalance(code.amount))} кредитов · активации ${escapeHtml(limit)}</span>
       </div>
       <button type="button" class="secondary-button" data-toggle-promo-id="${code.id}" data-active="${code.active ? "false" : "true"}">
         <span class="material-symbols-rounded">${code.active ? "block" : "check_circle"}</span>
@@ -478,6 +587,104 @@ function renderPromoCodes(promoCodes = []) {
       </button>
     </article>`;
   }).join("") : `<div class="empty-history">Промокодов пока нет.</div>`;
+}
+
+function renderAdminUsers() {
+  const list = $("#adminUsersList");
+  if (!list) return;
+  const users = Array.isArray(state.adminUsers) ? state.adminUsers : [];
+  list.innerHTML = users.length ? users.map(user => {
+    const duration = formatDuration(user.totalDurationSeconds || 0) || "0:00";
+    return `<article class="admin-user-item">
+      <div class="admin-user-main">
+        <strong>${escapeHtml(user.username)}</strong>
+        <span>Создан ${escapeHtml(formatShortDate(user.createdAt))}</span>
+      </div>
+      <div class="admin-user-stats">
+        <span><strong>${escapeHtml(formatBalance(user.balance))}</strong><small>кредиты</small></span>
+        <span><strong>${escapeHtml(String(user.totalCalls || 0))}</strong><small>звонки</small></span>
+        <span><strong>${escapeHtml(String(user.completedCalls || 0))}</strong><small>завершено</small></span>
+        <span><strong>${escapeHtml(String(user.missedCalls || 0))}</strong><small>не ответили</small></span>
+        <span><strong>${escapeHtml(duration)}</strong><small>время</small></span>
+      </div>
+      <span class="admin-user-last">Последний звонок: ${escapeHtml(formatShortDate(user.lastCallAt))}</span>
+    </article>`;
+  }).join("") : `<div class="empty-history">Пользователей пока нет.</div>`;
+}
+
+function renderTonTopup() {
+  const panel = $("#tonTopupPanel");
+  if (!panel) return;
+  const currency = $("#topupCurrencyInput")?.value === "USDT" ? "USDT" : "TON";
+  const tonConfig = state.config.tonPayments || {};
+  const usdtConfig = state.config.usdtPayments || {};
+  const config = currency === "USDT" ? usdtConfig : tonConfig;
+  const minAmount = Number(currency === "USDT"
+    ? (config.minUsdtAmount || 1)
+    : (config.minTonAmount || 0.1));
+  const amountInput = $("#tonAmountInput");
+  const amountLabel = $("#topupAmountLabel");
+  if (amountLabel) amountLabel.textContent = `Сумма ${currency}`;
+  if (amountInput && minAmount) {
+    amountInput.min = String(minAmount);
+    amountInput.step = currency === "USDT" ? "0.01" : "0.01";
+    if (Number(amountInput.value || 0) < minAmount) {
+      amountInput.value = String(minAmount);
+    }
+  }
+
+  const box = $("#tonPaymentBox");
+  if (box) box.hidden = !config.enabled;
+  if (config.enabled) {
+    const amount = Math.max(Number(amountInput?.value || minAmount), minAmount);
+    if (currency === "USDT") {
+      const credits = amount * Number(config.creditsPerUsdt || 0);
+      $("#tonPaymentTitle").textContent = "USDT реквизиты";
+      $("#tonPaymentText").textContent = `${formatUsdt(amount)} USDT (${config.network || "TRC20"}) -> ${formatBalance(credits)} кредитов (USD). Адрес: ${config.walletAddress || ""}. Комментарий: ${config.comment || ""}. После перевода отправьте tx id администратору для зачисления.`;
+      $("#tonPaymentLink").href = "#";
+      $("#tonPaymentLink").dataset.copyAddress = config.walletAddress || "";
+      $("#tonPaymentLinkLabel").textContent = "Скопировать адрес";
+      $("#tonPaymentQr").src = usdtQrUrl(amount);
+      $("#tonPaymentQr").alt = "QR код для оплаты USDT";
+      $("#markTonPaidButton").hidden = true;
+    } else {
+      const credits = amount * Number(config.creditsPerTon || 0);
+      $("#tonPaymentTitle").textContent = "TON реквизиты";
+      $("#tonPaymentText").textContent = `${formatTon(amount)} TON -> ${formatBalance(credits)} кредитов (USD). Комментарий: ${config.comment || ""}. После перевода можно закрыть приложение, сервер сам зачислит поступление.`;
+      $("#tonPaymentLink").href = tonTransferLink(config.walletAddress, amount, config.comment);
+      delete $("#tonPaymentLink").dataset.copyAddress;
+      $("#tonPaymentLinkLabel").textContent = "Открыть кошелёк";
+      $("#tonPaymentQr").src = tonQrUrl(amount);
+      $("#tonPaymentQr").alt = "QR код для оплаты TON";
+      $("#markTonPaidButton").hidden = false;
+    }
+    $("#markTonPaidButton").removeAttribute("data-ton-payment-id");
+  }
+
+  const list = $("#tonUserPayments");
+  if (list) {
+    const payments = Array.isArray(state.tonPayments) ? state.tonPayments.slice(0, 3) : [];
+    list.innerHTML = payments.length ? payments.map(item => `<article class="ton-payment-item confirmed">
+      <div>
+        <strong>${escapeHtml(formatTon(item.tonAmount))} TON</strong>
+        <span>${escapeHtml(formatBalance(item.creditsAmount))} кредитов · зачислено</span>
+        <small>${escapeHtml(item.comment)}</small>
+      </div>
+    </article>`).join("") : "";
+  }
+}
+
+function renderTonAdminPayments() {
+  const list = $("#tonAdminList");
+  if (!list) return;
+  const payments = Array.isArray(state.adminTonPayments) ? state.adminTonPayments : [];
+  list.innerHTML = payments.length ? payments.slice(0, 20).map(payment => `<article class="ton-admin-item confirmed">
+    <div>
+      <strong>${escapeHtml(formatTon(payment.tonAmount))} TON -> ${escapeHtml(formatBalance(payment.creditsAmount))}</strong>
+      <span>Зачислено · ${escapeHtml(payment.comment)}</span>
+      <small>${escapeHtml(payment.clientId)}${payment.senderAddress ? ` · ${escapeHtml(payment.senderAddress)}` : ""}</small>
+    </div>
+  </article>`).join("") : `<div class="empty-history">TON-пополнений пока нет.</div>`;
 }
 
 function renderHistory() {
@@ -529,6 +736,7 @@ function renderActiveHistoryDuration() {
 function renderHeader() {
   const call = state.activeCall;
   const status = callStatusMeta(call);
+  const normalizedStatus = statusName(call?.status);
   const live = isLive(call);
   const latest = call?.transcript?.at(-1);
   const remoteSpeaking = live && speakerName(latest) === "Remote";
@@ -538,11 +746,11 @@ function renderHeader() {
   document.body.classList.remove("call-status-dialing", "call-status-live", "call-status-complete", "call-status-failed", "call-status-idle");
   const statusClass = !call
     ? "call-status-idle"
-    : isFailedCall(call) || ["Busy", "NoAnswer", "Canceled"].includes(call.status)
+    : isFailedCall(call) || ["Busy", "NoAnswer", "Canceled"].includes(normalizedStatus)
       ? "call-status-failed"
-      : call.status === "Completed"
+      : normalizedStatus === "Completed"
         ? "call-status-complete"
-        : call.status === "InProgress"
+        : normalizedStatus === "InProgress"
           ? "call-status-live"
           : "call-status-dialing";
   document.body.classList.add(statusClass);
@@ -556,6 +764,10 @@ function renderHeader() {
     ? call.error
     : call?.prompt || (state.config.readyForRealCalls ? "Сначала выберите номер и цель звонка" : (state.config.setupReason || "Нужно завершить настройки"));
   $("#statusLabel").textContent = call ? status.text : "Ожидание";
+  const headerDuration = callDurationSeconds(call);
+  $("#callTimer").textContent = live
+    ? formatDuration(headerDuration) || "00:00"
+    : (headerDuration && headerDuration > 0 ? formatDuration(headerDuration) : "");
   $("#autopilotToggle").checked = !!call?.autoPilot;
   $("#autopilotToggle").disabled = !call || !live;
   $("#messageInput").disabled = !call || !live;
@@ -584,6 +796,14 @@ function renderReplyArea(call, live, status) {
   const suggestions = $("#suggestions");
   const messageForm = $("#messageForm");
   const actionState = $("#callActionState");
+  const replyArea = document.querySelector(".reply-area");
+  const normalizedStatus = statusName(call?.status);
+  const showActionState = !!call && !live;
+
+  if (replyArea) {
+    replyArea.classList.toggle("compact-state", showActionState);
+    replyArea.hidden = !!call && !live && !showActionState;
+  }
 
   if (translationStatus) {
     translationStatus.hidden = !live;
@@ -601,8 +821,8 @@ function renderReplyArea(call, live, status) {
     return;
   }
 
-  const showActionState = !!call && !live;
   actionState.hidden = !showActionState;
+  actionState.classList.remove("complete", "failed", "warning");
 
   if (!showActionState) {
     return;
@@ -612,16 +832,20 @@ function renderReplyArea(call, live, status) {
   const text = $("#callActionStateText");
   const icon = $("#callActionStateIcon");
 
-  if (isFailedCall(call) || ["Busy", "NoAnswer", "Canceled"].includes(call?.status)) {
-    if (icon) icon.textContent = status.icon || "error";
-    if (title) title.textContent = status.text || "Звонок завершён";
-    if (text) text.textContent = "Отвечать уже нельзя. Откройте другой звонок в истории или начните новый.";
-    return;
+  actionState.classList.add(status.className === "complete" ? "complete" : status.className === "failed" ? "failed" : "warning");
+  if (icon) icon.textContent = status.icon;
+  if (title) title.textContent = normalizedStatus === "Completed" ? "Звонок завершён" : status.text;
+  if (text) {
+    text.textContent = normalizedStatus === "NoAnswer"
+      ? "Собеседник не поднял трубку. Можно попробовать позже или начать новый звонок."
+      : normalizedStatus === "Busy"
+        ? "Линия была занята. Можно попробовать ещё раз позже."
+        : normalizedStatus === "Canceled"
+          ? "Звонок отменён до разговора."
+          : normalizedStatus === "Failed"
+            ? (call.error || "Звонок не удалось выполнить.")
+            : "Разговор завершён. Можно посмотреть итог выше или начать новый звонок.";
   }
-
-  if (icon) icon.textContent = "check_circle";
-  if (title) title.textContent = "Звонок завершён";
-  if (text) text.textContent = "Разговор уже закончился. Можно посмотреть итог выше или начать новый звонок.";
 }
 
 function messageMarkup(entry) {
@@ -644,7 +868,25 @@ function messageMarkup(entry) {
 }
 
 function callSummaryMarkup(call) {
-  if (!call || isLive(call) || !(call.transcript || []).length) {
+  if (!call || isLive(call)) {
+    return "";
+  }
+
+  const transcript = call.transcript || [];
+  const normalizedStatus = statusName(call.status);
+  if (!transcript.length && normalizedStatus !== "Completed") {
+    const status = callStatusMeta(call);
+    return `<section class="call-summary terminal">
+      <div class="summary-icon material-symbols-rounded">${status.icon}</div>
+      <div>
+        <span class="eyebrow">Итог звонка</span>
+        <strong>${escapeHtml(status.text)}</strong>
+        <p>${escapeHtml(normalizedStatus === "NoAnswer" ? "Собеседник не поднял трубку." : call.error || "Разговора не было.")}</p>
+      </div>
+    </section>`;
+  }
+
+  if (!transcript.length) {
     return "";
   }
 
@@ -689,13 +931,16 @@ function renderPinnedSummary(call, transcript) {
 function renderConversation() {
   const call = state.activeCall;
   const transcript = call?.transcript || [];
-  const adminAuthenticated = !!state.config.adminAuthenticated;
-  const emptyTitle = state.config.readyForRealCalls ? "Готов к реальному звонку" : "Реальный режим требует настройки";
-  const emptyText = state.config.readyForRealCalls
+  const adminAuthenticated = isAdminUser();
+  const terminalStatus = call && !isLive(call) ? callStatusMeta(call) : null;
+  const emptyTitle = terminalStatus ? terminalStatus.text : (state.config.readyForRealCalls ? "Готов к реальному звонку" : "Реальный режим требует настройки");
+  const emptyText = terminalStatus
+    ? (statusName(call.status) === "NoAnswer" ? "Собеседник не поднял трубку." : call.error || "Разговора не было.")
+    : state.config.readyForRealCalls
     ? "Здесь появится разговор после старта. Пока звонок не начат, никакой линии нет."
     : adminAuthenticated
       ? `${state.config.setupReason || "Проверьте настройки."} Откройте «Настройки» слева внизу.`
-      : `${state.config.setupReason || "Сервис ещё не настроен."} Настройки доступны только администратору.`;
+      : `${state.config.setupReason || "Сервис ещё не настроен."} Настройки доступны только пользователю admin.`;
 
   renderPinnedSummary(call, transcript);
 
@@ -720,6 +965,8 @@ function render() {
   renderSettings();
   renderAuth();
   renderBalance();
+  renderAdminUsers();
+  renderTonAdminPayments();
   renderHistory();
   renderHeader();
   renderConversation();
@@ -765,6 +1012,91 @@ async function redeemPromoCode(code) {
 async function loadPromoCodes() {
   const promoCodes = await api("/api/admin/promocodes");
   renderPromoCodes(promoCodes);
+}
+
+async function loadAdminUsers() {
+  if (!isAdminUser()) {
+    state.adminUsers = [];
+    renderAdminUsers();
+    return;
+  }
+
+  state.adminUsers = await api("/api/admin/users");
+  renderAdminUsers();
+}
+
+async function loadTonDepositInfo() {
+  if (!state.auth?.authenticated) {
+    state.tonPayments = [];
+    renderTonTopup();
+    return;
+  }
+
+  try {
+    const [tonInfo, usdtInfo] = await Promise.all([
+      api("/api/ton/deposit-info").catch(() => null),
+      api("/api/usdt/deposit-info").catch(() => null)
+    ]);
+    if (tonInfo) {
+      state.config.tonPayments = { ...(state.config.tonPayments || {}), ...tonInfo, enabled: !!tonInfo.enabled };
+    }
+    if (usdtInfo) {
+      state.config.usdtPayments = { ...(state.config.usdtPayments || {}), ...usdtInfo, enabled: !!usdtInfo.enabled };
+    }
+  } catch {
+    state.config.tonPayments = { ...(state.config.tonPayments || {}), enabled: false };
+    state.config.usdtPayments = { ...(state.config.usdtPayments || {}), enabled: false };
+  }
+
+  state.tonPayments = await api("/api/ton/deposits").catch(() => []);
+  renderTonTopup();
+}
+
+async function refreshTonDeposits() {
+  const result = await api("/api/ton/refresh", { method: "POST" });
+  state.balance = result.balance || state.balance;
+  state.tonPayments = result.deposits || [];
+  renderBalance();
+}
+
+async function loadAdminTonPayments() {
+  if (!isAdminUser()) {
+    state.adminTonPayments = [];
+    renderTonAdminPayments();
+    return;
+  }
+
+  state.adminTonPayments = await api("/api/admin/ton-payments");
+  renderTonAdminPayments();
+}
+
+async function saveTonSettings() {
+  const payload = {
+    walletAddress: $("#tonWalletAddressInput").value.trim(),
+    creditsPerTon: Number($("#tonCreditsPerTonInput").value),
+    minTonAmount: Number($("#tonMinAmountInput").value)
+  };
+  await api("/api/config/ton", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+  await loadConfig();
+  render();
+}
+
+async function saveUsdtSettings() {
+  const payload = {
+    walletAddress: $("#usdtWalletAddressInput").value.trim(),
+    network: $("#usdtNetworkInput").value.trim(),
+    creditsPerUsdt: Number($("#usdtCreditsPerUsdtInput").value),
+    minUsdtAmount: Number($("#usdtMinAmountInput").value)
+  };
+  await api("/api/config/usdt", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+  await loadConfig();
+  render();
 }
 
 async function createPromoCode() {
@@ -835,22 +1167,22 @@ async function submitAuth() {
     body: JSON.stringify({ username, password })
   });
   await loadBalance();
+  await loadConfig().catch(() => {});
   await loadCalls(state.activeCall?.id);
+  if (isAdminPath()) {
+    await syncRouteFromLocation();
+    return;
+  }
   render();
 }
 
 async function logoutUser() {
   await api("/api/auth/logout", { method: "POST" });
   state.auth = { authenticated: false, user: null, balanceClientId: null };
+  await loadConfig().catch(() => {});
   await loadBalance();
   await loadCalls();
   render();
-}
-
-async function refreshAdminState() {
-  const status = await api("/api/admin/status");
-  state.config.adminConfigured = status.configured;
-  state.config.adminAuthenticated = status.authenticated;
 }
 
 async function saveOpenAiSettings() {
@@ -872,7 +1204,7 @@ async function saveOpenAiSettings() {
     showToast("OpenAI key сохранён локально");
   } catch (error) {
     if (error.status === 401) {
-      openAdminDialog();
+      showToast(state.auth?.authenticated ? "Настройки доступны только пользователю admin." : "Войдите под пользователем admin.");
       return;
     }
     showToast(error.message || "Не удалось сохранить OpenAI key");
@@ -922,7 +1254,7 @@ async function saveTwilioSettings() {
     showToast("Twilio сохранён. Нажмите «Проверить Twilio»");
   } catch (error) {
     if (error.status === 401) {
-      openAdminDialog();
+      showToast(state.auth?.authenticated ? "Настройки доступны только пользователю admin." : "Войдите под пользователем admin.");
       return;
     }
     showToast(error.message || "Не удалось сохранить Twilio");
@@ -938,7 +1270,7 @@ async function checkTwilioSettings() {
     showToast("Twilio SID/Auth Token валидны");
   } catch (error) {
     if (error.status === 401) {
-      openAdminDialog();
+      showToast(state.auth?.authenticated ? "Настройки доступны только пользователю admin." : "Войдите под пользователем admin.");
       return;
     }
     await new Promise(resolve => setTimeout(resolve, 1200));
@@ -1001,6 +1333,9 @@ async function refreshActiveCall({ forceRender = false } = {}) {
       renderHistory();
       renderActiveHistoryDuration();
     }
+    if (!isLive(call) && changed) {
+      loadBalance().catch(() => {});
+    }
     return call;
   } catch {
     return null;
@@ -1009,7 +1344,7 @@ async function refreshActiveCall({ forceRender = false } = {}) {
 
 async function sendMessage(text, spokenText = null) {
   if (!state.activeCall?.id || isDemoCall(state.activeCall)) {
-    showToast("Это пример. Пополните баланс и начните реальный звонок.");
+    showToast("Это пример. Пополните кредиты и начните реальный звонок.");
     return;
   }
   try {
@@ -1149,60 +1484,37 @@ function showNewCallErrors(error) {
   summary.hidden = false;
 }
 
-function clearAdminErrors() {
-  $("#adminErrorSummary").hidden = true;
-  $("#adminErrorSummary").textContent = "";
-  $("#adminPasswordError").textContent = "";
-  $("#adminPasswordInput").classList.remove("field-invalid");
-  $("#adminPasswordInput").removeAttribute("aria-invalid");
-}
-
-function showAdminError(message) {
-  $("#adminErrorSummary").textContent = message;
-  $("#adminErrorSummary").hidden = false;
-  $("#adminPasswordError").textContent = message;
-  $("#adminPasswordInput").classList.add("field-invalid");
-  $("#adminPasswordInput").setAttribute("aria-invalid", "true");
-}
-
-function openAdminDialog() {
-  clearAdminErrors();
-  $("#settingsDialog").close();
-  $("#adminPasswordInput").value = "";
-  $("#adminDialog").showModal();
-  setTimeout(() => $("#adminPasswordInput").focus(), 0);
-}
-
-async function openSettingsProtected() {
+async function openSettingsProtected({ fromRoute = false } = {}) {
+  if (fromRoute) {
+    setMobileView("admin");
+  }
   try {
-    await refreshAdminState();
-    if (state.config.adminAuthenticated) {
-      await loadConfig();
+    await loadConfig();
+    if (isAdminUser()) {
       render();
-      await loadPromoCodes().catch(() => {});
-      $("#settingsDialog").showModal();
+      await Promise.all([
+        loadPromoCodes().catch(() => {}),
+        loadAdminUsers().catch(() => {}),
+        loadAdminTonPayments().catch(() => {})
+      ]);
+      setMobileView("admin");
+      if (!fromRoute) {
+        setRouteState("admin");
+      }
       return;
     }
 
-    openAdminDialog();
+    render();
+    if (!state.auth?.authenticated) {
+      openAuthDialog("login");
+      showToast("Войдите под пользователем admin.");
+      return;
+    }
+
+    showToast("Настройки доступны только пользователю admin.");
   } catch {
-    showToast("Не удалось проверить admin доступ");
+    showToast("Не удалось открыть настройки");
   }
-}
-
-async function loginAdmin(password) {
-  await api("/api/admin/login", {
-    method: "POST",
-    body: JSON.stringify({ password })
-  });
-  await loadConfig();
-  render();
-}
-
-async function logoutAdmin() {
-  await api("/api/admin/logout", { method: "POST" });
-  await loadConfig();
-  render();
 }
 
 function openNewCallDialog() {
@@ -1211,15 +1523,16 @@ function openNewCallDialog() {
     return;
   }
 
-  if (Number(state.balance?.balance || 0) < callPrice) {
-    showToast(`Один звонок стоит ${callPrice}. Введите промокод, чтобы пополнить баланс.`);
+  const price = callPrice();
+  if (Number(state.balance?.balance || 0) < price) {
+    showToast(`Одна минута стоит ${formatBalance(price)} USD (кредиты). Зайдите в профиль и пополните кредиты.`);
     return;
   }
 
   if (!state.config.readyForRealCalls) {
-    showToast(state.config.adminAuthenticated
+    showToast(isAdminUser()
       ? (state.config.setupReason || "Завершите настройки перед реальным звонком")
-      : "Сервис ещё не настроен. Настройки доступны только администратору.");
+      : "Сервис ещё не настроен. Настройки доступны только пользователю admin.");
     return;
   }
   clearNewCallErrors();
@@ -1229,9 +1542,14 @@ function openNewCallDialog() {
 $("#newCallButton").addEventListener("click", openNewCallDialog);
 $("#mobileNewCallButton").addEventListener("click", openNewCallDialog);
 document.querySelectorAll("[data-mobile-view]").forEach(button => {
-  button.addEventListener("click", () => setMobileView(button.dataset.mobileView));
+  button.addEventListener("click", () => {
+    if (button.dataset.mobileView === "admin") {
+      openSettingsProtected();
+      return;
+    }
+    setMobileView(button.dataset.mobileView);
+  });
 });
-$("#mobileSettingsNav").addEventListener("click", openSettingsProtected);
 $("#closeNewCallDialog").addEventListener("click", () => {
   clearNewCallErrors();
   $("#newCallDialog").close();
@@ -1241,7 +1559,17 @@ $("#cancelNewCallDialog").addEventListener("click", () => {
   $("#newCallDialog").close();
 });
 $("#openSettingsButton").addEventListener("click", openSettingsProtected);
-$("#settingsSidebarButton").addEventListener("click", openSettingsProtected);
+$("#settingsSidebarButton")?.addEventListener("click", openSettingsProtected);
+$("#closeSettingsPage")?.addEventListener("click", () => closeAdminPanel());
+$("#adminDoneButton")?.addEventListener("click", () => closeAdminPanel());
+$("#refreshAdminUsersButton")?.addEventListener("click", async () => {
+  try {
+    await loadAdminUsers();
+    showToast("Пользователи обновлены");
+  } catch (error) {
+    showToast(error.message || "Не удалось обновить пользователей");
+  }
+});
 $("#refreshConfigButton").addEventListener("click", async () => {
   try {
     await loadConfig();
@@ -1253,51 +1581,25 @@ $("#refreshConfigButton").addEventListener("click", async () => {
 });
 $("#saveOpenAiButton").addEventListener("click", saveOpenAiSettings);
 $("#saveTwilioButton").addEventListener("click", saveTwilioSettings);
+$("#saveTonSettingsButton")?.addEventListener("click", async () => {
+  try {
+    await saveTonSettings();
+    await loadAdminTonPayments().catch(() => {});
+    showToast("TON настройки сохранены");
+  } catch (error) {
+    showToast(error.message || "Не удалось сохранить TON");
+  }
+});
+$("#saveUsdtSettingsButton")?.addEventListener("click", async () => {
+  try {
+    await saveUsdtSettings();
+    showToast("USDT настройки сохранены");
+  } catch (error) {
+    showToast(error.message || "Не удалось сохранить USDT");
+  }
+});
 $("#checkTwilioButton").addEventListener("click", checkTwilioSettings);
 $("#checkTwilioTopButton").addEventListener("click", checkTwilioSettings);
-$("#adminLogoutButton").addEventListener("click", async () => {
-  try {
-    await logoutAdmin();
-    $("#settingsDialog").close();
-    showToast("Admin сессия закрыта");
-  } catch {
-    showToast("Не удалось выйти из admin режима");
-  }
-});
-$("#adminLoginForm").addEventListener("submit", async event => {
-  event.preventDefault();
-  clearAdminErrors();
-  const password = $("#adminPasswordInput").value;
-  if (!password) {
-    showAdminError("Введите admin пароль.");
-    return;
-  }
-
-  const button = $("#adminLoginButton");
-  const label = button.querySelector("span:last-child");
-  button.disabled = true;
-  label.textContent = "Проверяем...";
-  try {
-    await loginAdmin(password);
-    $("#adminDialog").close();
-    await loadPromoCodes().catch(() => {});
-    $("#settingsDialog").showModal();
-    showToast("Admin доступ открыт");
-  } catch (error) {
-    showAdminError(error.message || "Неверный admin пароль.");
-  } finally {
-    button.disabled = false;
-    label.textContent = "Войти";
-  }
-});
-$("#closeAdminDialog").addEventListener("click", () => {
-  clearAdminErrors();
-  $("#adminDialog").close();
-});
-$("#cancelAdminDialog").addEventListener("click", () => {
-  clearAdminErrors();
-  $("#adminDialog").close();
-});
 $("#helpButton").addEventListener("click", () => $("#helpDialog").showModal());
 $("#logoutButton").addEventListener("click", async () => {
   try {
@@ -1326,6 +1628,9 @@ $("#authForm").addEventListener("submit", async event => {
     button.disabled = false;
   }
 });
+window.addEventListener("popstate", () => {
+  syncRouteFromLocation().catch(() => {});
+});
 $("#redeemPromoForm").addEventListener("submit", async event => {
   event.preventDefault();
   const input = $("#promoCodeInput");
@@ -1341,6 +1646,42 @@ $("#redeemPromoForm").addEventListener("submit", async event => {
     showToast("Промокод применён");
   } catch (error) {
     showToast(error.message || "Промокод не применён");
+  }
+});
+$("#openTonTopupButton")?.addEventListener("click", async () => {
+  if (!state.auth?.authenticated) {
+    openAuthDialog("login");
+    return;
+  }
+  const panel = $("#tonTopupPanel");
+  panel.hidden = !panel.hidden;
+  if (!panel.hidden) {
+    await loadTonDepositInfo().catch(() => showToast("Пополнение пока не настроено"));
+    if (!state.config.tonPayments?.enabled && !state.config.usdtPayments?.enabled) {
+      showToast("Пополнение пока не настроено");
+    }
+  }
+});
+$("#tonAmountInput")?.addEventListener("input", renderTonTopup);
+$("#topupCurrencyInput")?.addEventListener("change", renderTonTopup);
+$("#tonTopupForm")?.addEventListener("submit", event => {
+  event.preventDefault();
+  renderTonTopup();
+  $("#tonPaymentBox").hidden = false;
+});
+$("#tonPaymentLink")?.addEventListener("click", async event => {
+  const address = event.currentTarget.dataset.copyAddress;
+  if (!address) return;
+  event.preventDefault();
+  await navigator.clipboard?.writeText(address);
+  showToast("USDT адрес скопирован");
+});
+$("#markTonPaidButton")?.addEventListener("click", async () => {
+  try {
+    await refreshTonDeposits();
+    showToast("Проверил TON. Если транзакция уже пришла, кредиты обновлены.");
+  } catch (error) {
+    showToast(error.message || "Не удалось проверить TON");
   }
 });
 $("#createPromoButton")?.addEventListener("click", async () => {
@@ -1446,8 +1787,9 @@ $("#endCallButton").addEventListener("click", async () => {
 $("#newCallForm").addEventListener("submit", async event => {
   event.preventDefault();
   clearNewCallErrors();
-  if (Number(state.balance?.balance || 0) < callPrice) {
-    showToast(`Один звонок стоит ${callPrice}. Введите промокод, чтобы пополнить баланс.`);
+  const price = callPrice();
+  if (Number(state.balance?.balance || 0) < price) {
+    showToast(`Одна минута стоит ${formatBalance(price)} USD (кредиты). Пополните кредиты.`);
     return;
   }
 
@@ -1498,7 +1840,8 @@ $("#newCallForm").addEventListener("submit", async event => {
 
 setInterval(() => {
   if (!isLive(state.activeCall)) {
-    $("#callTimer").textContent = "00:00";
+    const duration = callDurationSeconds(state.activeCall);
+    $("#callTimer").textContent = duration && duration > 0 ? formatDuration(duration) : "";
     return;
   }
   const elapsed = Math.max(0, Date.now() - state.startedAt);
@@ -1520,11 +1863,11 @@ setInterval(() => {
   try {
     await loadConfig();
     await loadAuth().catch(() => {});
-    await refreshAdminState().catch(() => {});
     await loadBalance().catch(() => {});
+    await loadTonDepositInfo().catch(() => {});
     await loadCalls();
     await startLiveUpdates();
-    setMobileView("call");
+    await syncRouteFromLocation();
   } catch {
     showToast("Не удалось загрузить конфигурацию");
     render();

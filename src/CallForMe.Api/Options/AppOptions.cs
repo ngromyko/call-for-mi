@@ -76,3 +76,54 @@ public sealed class AdminOptions
 
     public bool IsConfigured => !string.IsNullOrWhiteSpace(Password);
 }
+
+public sealed class TonPaymentsOptions
+{
+    public const string SectionName = "TonPayments";
+
+    public bool Enabled { get; set; }
+    public string WalletAddress { get; set; } = "";
+    public string ApiKey { get; set; } = "";
+    public string ApiBaseUrl { get; set; } = "https://tonapi.io";
+    public decimal CreditsPerTon { get; set; } = 1000m;
+    public decimal MinTonAmount { get; set; } = 0.1m;
+    public int PollIntervalSeconds { get; set; } = 45;
+    public int LookbackLimit { get; set; } = 50;
+
+    public bool IsConfigured =>
+        Enabled &&
+        IsLikelyTonAddress(WalletAddress) &&
+        CreditsPerTon > 0 &&
+        MinTonAmount > 0;
+
+    public static bool IsLikelyTonAddress(string? value)
+    {
+        var address = value?.Trim() ?? "";
+        return address.Length is >= 32 and <= 128 &&
+            address.All(character => char.IsLetterOrDigit(character) || character is '_' or '-');
+    }
+}
+
+public sealed class UsdtPaymentsOptions
+{
+    public const string SectionName = "UsdtPayments";
+
+    public bool Enabled { get; set; }
+    public string WalletAddress { get; set; } = "";
+    public string Network { get; set; } = "TRC20";
+    public decimal CreditsPerUsdt { get; set; } = 100m;
+    public decimal MinUsdtAmount { get; set; } = 1m;
+
+    public bool IsConfigured =>
+        Enabled &&
+        IsLikelyWalletAddress(WalletAddress) &&
+        CreditsPerUsdt > 0 &&
+        MinUsdtAmount > 0;
+
+    public static bool IsLikelyWalletAddress(string? value)
+    {
+        var address = value?.Trim() ?? "";
+        return address.Length is >= 24 and <= 128 &&
+            address.All(character => char.IsLetterOrDigit(character) || character is '_' or '-' or ':');
+    }
+}

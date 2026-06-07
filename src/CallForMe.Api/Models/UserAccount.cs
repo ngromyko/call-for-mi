@@ -10,3 +10,14 @@ public sealed class UserAccount
 }
 
 public sealed record UserAccountView(Guid Id, string Username);
+
+public sealed record AdminUserStatsView(
+    Guid Id,
+    string Username,
+    DateTimeOffset CreatedAt,
+    decimal Balance,
+    int TotalCalls,
+    int CompletedCalls,
+    int MissedCalls,
+    long TotalDurationSeconds,
+    DateTimeOffset? LastCallAt);

@@ -1,6 +1,6 @@
 {
-  "name": "Мой звонок",
-  "short_name": "Звонок",
+  "name": "Call for me",
+  "short_name": "Call for me",
   "description": "Личный ИИ-помощник для звонков и перевода разговоров.",
   "lang": "ru",
   "dir": "ltr",
@@ -36,7 +36,7 @@
   "shortcuts": [
     {
       "name": "Новый звонок",
-      "short_name": "Звонок",
+      "short_name": "Call",
       "description": "Открыть приложение для запуска нового звонка.",
       "url": "/?action=new-call",
       "icons": [

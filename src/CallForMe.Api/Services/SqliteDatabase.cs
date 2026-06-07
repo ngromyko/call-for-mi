@@ -109,6 +109,24 @@ public sealed class SqliteDatabase
                 UNIQUE(promo_code_id, client_id),
                 FOREIGN KEY(promo_code_id) REFERENCES promo_codes(id)
             );
+
+            CREATE TABLE IF NOT EXISTS ton_payments (
+                id TEXT PRIMARY KEY,
+                client_id TEXT NOT NULL,
+                external_id TEXT NOT NULL UNIQUE,
+                comment TEXT NOT NULL,
+                wallet_address TEXT NOT NULL,
+                sender_address TEXT NULL,
+                payment_link TEXT NULL,
+                ton_amount TEXT NOT NULL,
+                credits_amount TEXT NOT NULL,
+                status TEXT NULL,
+                created_at TEXT NOT NULL,
+                received_at TEXT NOT NULL,
+                submitted_at TEXT NULL,
+                confirmed_at TEXT NULL,
+                confirmed_by TEXT NULL
+            );
             """;
         command.ExecuteNonQuery();
         AddColumnIfMissing(connection, "calls", "user_id", "TEXT NULL");
@@ -125,6 +143,13 @@ public sealed class SqliteDatabase
         AddColumnIfMissing(connection, "calls", "pricing_tier", "TEXT NULL");
         AddColumnIfMissing(connection, "calls", "billing_json", "TEXT NULL");
         AddColumnIfMissing(connection, "calls", "usage_json", "TEXT NULL");
+        AddColumnIfMissing(connection, "ton_payments", "external_id", "TEXT NULL");
+        AddColumnIfMissing(connection, "ton_payments", "sender_address", "TEXT NULL");
+        AddColumnIfMissing(connection, "ton_payments", "received_at", "TEXT NULL");
+
+        using var tonIndex = connection.CreateCommand();
+        tonIndex.CommandText = "CREATE UNIQUE INDEX IF NOT EXISTS ux_ton_payments_external_id ON ton_payments(external_id)";
+        tonIndex.ExecuteNonQuery();
     }
 
     private static void AddColumnIfMissing(SqliteConnection connection, string table, string column, string type)

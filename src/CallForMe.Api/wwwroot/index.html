@@ -6,18 +6,18 @@
   <meta name="theme-color" content="#0d0d12">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-title" content="Мой звонок">
+  <meta name="apple-mobile-web-app-title" content="Call for me">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <title>Мой звонок</title>
-  <link rel="icon" href="/favicon.ico?v=1" sizes="any">
-  <link rel="icon" href="/icon.svg?v=1" type="image/svg+xml">
-  <link rel="shortcut icon" href="/favicon.ico?v=1">
-  <link rel="apple-touch-icon" href="/icon-192.png?v=1">
-  <link rel="manifest" href="/manifest.webmanifest?v=1">
+  <title>Call for me</title>
+  <link rel="icon" href="/favicon.ico?v=2" sizes="any">
+  <link rel="icon" href="/icon.svg?v=2" type="image/svg+xml">
+  <link rel="shortcut icon" href="/favicon.ico?v=2">
+  <link rel="apple-touch-icon" href="/icon-192.png?v=2">
+  <link rel="manifest" href="/manifest.webmanifest?v=2">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,300,0,0" rel="stylesheet">
-  <link rel="stylesheet" href="/styles.css?v=mobile-fit-2">
+  <link rel="stylesheet" href="/styles.css?v=admin-page-2">
 </head>
 <body class="mobile-view-call">
   <div class="app-shell">
@@ -25,7 +25,7 @@
       <div class="brand">
         <span class="brand-mark material-symbols-rounded">graphic_eq</span>
         <div>
-          <strong>Мой звонок</strong>
+          <strong>Call for me</strong>
           <span>Ваш личный ИИ-помощник</span>
         </div>
       </div>
@@ -50,9 +50,9 @@
         </button>
       </section>
 
-      <section class="balance-card" aria-label="Баланс">
+      <section class="balance-card" aria-label="Кредиты">
         <div>
-          <span>Баланс</span>
+          <span>Кредиты</span>
           <strong id="balanceAmount">0</strong>
         </div>
         <form id="redeemPromoForm" class="promo-redeem-form">
@@ -61,6 +61,45 @@
             <span class="material-symbols-rounded">add_card</span>
           </button>
         </form>
+        <button type="button" class="ton-toggle-button" id="openTonTopupButton">
+          <span class="material-symbols-rounded">account_balance_wallet</span>
+          Пополнить TON / USDT
+        </button>
+        <section class="ton-topup-panel" id="tonTopupPanel" hidden>
+          <form id="tonTopupForm">
+            <label>
+              <span>Валюта</span>
+              <select id="topupCurrencyInput" autocomplete="off">
+                <option value="TON">TON</option>
+                <option value="USDT">USDT</option>
+              </select>
+            </label>
+            <label>
+              <span id="topupAmountLabel">Сумма</span>
+              <input id="tonAmountInput" type="number" min="0.1" step="0.01" value="0.1" inputmode="decimal">
+            </label>
+            <button type="submit" class="primary-button">
+              <span class="material-symbols-rounded">payments</span>
+              Обновить ссылку
+            </button>
+          </form>
+          <div class="ton-payment-box" id="tonPaymentBox" hidden>
+            <strong id="tonPaymentTitle">Реквизиты пополнения</strong>
+            <span id="tonPaymentText"></span>
+            <div class="ton-qr-box">
+              <img id="tonPaymentQr" alt="QR код для оплаты TON" loading="lazy">
+            </div>
+            <a id="tonPaymentLink" class="primary-button" target="_blank" rel="noreferrer">
+              <span class="material-symbols-rounded">open_in_new</span>
+              <span id="tonPaymentLinkLabel">Открыть кошелёк</span>
+            </a>
+            <button type="button" class="secondary-button" id="markTonPaidButton">
+              <span class="material-symbols-rounded">done</span>
+              Обновить сейчас
+            </button>
+          </div>
+          <div class="ton-user-payments" id="tonUserPayments"></div>
+        </section>
       </section>
 
       <div class="setup-warning" id="setupWarning" hidden>
@@ -81,9 +120,9 @@
       <nav class="call-history" id="callHistory" aria-label="История звонков"></nav>
 
       <div class="sidebar-bottom">
-        <button class="help-button" id="settingsSidebarButton">
+        <button class="help-button" id="settingsSidebarButton" hidden>
           <span class="material-symbols-rounded">tune</span>
-          Админ
+          Настройки
         </button>
         <button class="help-button" id="helpButton">
           <span class="material-symbols-rounded">help</span>
@@ -196,7 +235,7 @@
     <button type="button" class="mobile-nav-action" id="mobileNewCallButton" aria-label="Новый звонок">
       <span class="material-symbols-rounded">add_call</span>
     </button>
-    <button type="button" class="mobile-nav-button" id="mobileSettingsNav">
+    <button type="button" class="mobile-nav-button" id="mobileSettingsNav" data-mobile-view="admin" hidden>
       <span class="material-symbols-rounded">tune</span>
       <span>Админ</span>
     </button>
@@ -292,41 +331,13 @@
     </form>
   </dialog>
 
-  <dialog class="modal small-modal" id="adminDialog">
-    <form class="modal-card" id="adminLoginForm" novalidate>
-      <div class="modal-header">
-        <div>
-          <span class="eyebrow">Только админ</span>
-          <h2>Вход в настройки</h2>
-          <p>Ключи Twilio и OpenAI можно менять только после admin-входа.</p>
-        </div>
-        <button type="button" class="icon-button" id="closeAdminDialog" aria-label="Закрыть">
-          <span class="material-symbols-rounded">close</span>
-        </button>
-      </div>
-      <div class="form-error-summary" id="adminErrorSummary" hidden></div>
-      <label>
-        <span>Admin пароль</span>
-        <input id="adminPasswordInput" name="password" type="password" autocomplete="current-password" placeholder="Введите admin пароль">
-        <small class="field-error" id="adminPasswordError"></small>
-      </label>
-      <div class="modal-actions">
-        <button type="button" class="secondary-button" id="cancelAdminDialog">Отмена</button>
-        <button type="submit" class="primary-button" id="adminLoginButton">
-          <span class="material-symbols-rounded">lock_open</span>
-          <span>Войти</span>
-        </button>
-      </div>
-    </form>
-  </dialog>
-
   <dialog class="modal small-modal" id="authDialog">
     <form class="modal-card" id="authForm" novalidate>
       <div class="modal-header">
         <div>
           <span class="eyebrow">Аккаунт</span>
           <h2 id="authTitle">Вход</h2>
-          <p>Username и пароль нужны, чтобы привязать баланс и историю к вашему аккаунту.</p>
+          <p>Username и пароль нужны, чтобы привязать кредиты и историю к вашему аккаунту.</p>
         </div>
         <button type="button" class="icon-button" id="closeAuthDialog" aria-label="Закрыть">
           <span class="material-symbols-rounded">close</span>
@@ -355,16 +366,32 @@
     </form>
   </dialog>
 
-  <dialog class="modal settings-modal" id="settingsDialog">
-    <form method="dialog" class="modal-card">
-      <div class="modal-header">
+  <section class="admin-page" id="adminPage" hidden>
+    <div class="admin-page-inner">
+      <div class="admin-page-header">
         <div>
-          <span class="eyebrow">Реальные звонки</span>
-          <h2>Настройка сервиса</h2>
-          <p>Можно сохранить ключи прямо здесь. Они попадут только в локальный <code>appsettings.Local.json</code>, который не коммитится.</p>
+          <span class="eyebrow">Админка</span>
+          <h2>Настройки и пользователи</h2>
+          <p>Ключи сохраняются локально в <code>appsettings.Local.json</code>. Ниже видны пользователи и базовая статистика.</p>
         </div>
-        <button value="cancel" class="icon-button" aria-label="Закрыть"><span class="material-symbols-rounded">close</span></button>
+        <button type="button" class="icon-button" id="closeSettingsPage" aria-label="Вернуться к звонку"><span class="material-symbols-rounded">arrow_back</span></button>
       </div>
+
+      <section class="admin-users-section">
+        <div class="settings-section-heading">
+          <div>
+            <h3>Пользователи</h3>
+            <p>Минимальная статистика по аккаунтам, кредитам и звонкам.</p>
+          </div>
+          <button type="button" class="secondary-button" id="refreshAdminUsersButton">
+            <span class="material-symbols-rounded">refresh</span>
+            Обновить
+          </button>
+        </div>
+        <div class="admin-users-list" id="adminUsersList">
+          <div class="empty-history">Пользователи загрузятся после входа admin.</div>
+        </div>
+      </section>
 
       <div class="settings-status">
         <div class="settings-card" id="twilioStatusCard">
@@ -435,6 +462,55 @@
       </div>
 
       <div class="settings-section">
+        <h3>TON</h3>
+        <div class="settings-form ton-settings-form">
+          <label>
+            <span>TON wallet address</span>
+            <input id="tonWalletAddressInput" type="text" placeholder="UQ..." autocomplete="off">
+          </label>
+          <label>
+            <span>Кредиты за 1 TON</span>
+            <input id="tonCreditsPerTonInput" type="number" min="1" step="1" value="1000">
+          </label>
+          <label>
+            <span>Минимум TON</span>
+            <input id="tonMinAmountInput" type="number" min="0.01" step="0.01" value="0.1">
+          </label>
+          <button type="button" class="primary-button" id="saveTonSettingsButton">
+            <span class="material-symbols-rounded">account_balance_wallet</span>
+            Сохранить TON
+          </button>
+        </div>
+        <div class="ton-admin-list" id="tonAdminList"></div>
+      </div>
+
+      <div class="settings-section">
+        <h3>USDT</h3>
+        <div class="settings-form usdt-settings-form">
+          <label>
+            <span>USDT wallet address</span>
+            <input id="usdtWalletAddressInput" type="text" placeholder="TRC20 / ERC20 address" autocomplete="off">
+          </label>
+          <label>
+            <span>Сеть</span>
+            <input id="usdtNetworkInput" type="text" placeholder="TRC20" autocomplete="off" value="TRC20">
+          </label>
+          <label>
+            <span>Кредиты за 1 USDT</span>
+            <input id="usdtCreditsPerUsdtInput" type="number" min="1" step="1" value="100">
+          </label>
+          <label>
+            <span>Минимум USDT</span>
+            <input id="usdtMinAmountInput" type="number" min="0.01" step="0.01" value="1">
+          </label>
+          <button type="button" class="primary-button" id="saveUsdtSettingsButton">
+            <span class="material-symbols-rounded">payments</span>
+            Сохранить USDT
+          </button>
+        </div>
+      </div>
+
+      <div class="settings-section">
         <h3>Промокоды</h3>
         <div class="settings-form promo-admin-form">
           <label>
@@ -442,7 +518,7 @@
             <input id="adminPromoCodeInput" type="text" placeholder="WELCOME100" autocomplete="off">
           </label>
           <label>
-            <span>Баланс</span>
+            <span>Кредиты</span>
             <input id="adminPromoAmountInput" type="number" min="1" step="1" value="100">
           </label>
           <label>
@@ -465,18 +541,14 @@
       </div>
 
       <div class="modal-actions">
-        <button type="button" class="secondary-button" id="adminLogoutButton">
-          <span class="material-symbols-rounded">logout</span>
-          Выйти из админа
-        </button>
         <button type="button" class="secondary-button" id="refreshConfigButton">
           <span class="material-symbols-rounded">refresh</span>
           Проверить снова
         </button>
-        <button value="cancel" class="primary-button">Готово</button>
+        <button type="button" class="primary-button" id="adminDoneButton">Готово</button>
       </div>
-    </form>
-  </dialog>
+    </div>
+  </section>
 
   <div class="toast" id="toast" role="status"></div>
   <script>
@@ -496,6 +568,6 @@
     };
   </script>
   <script src="/vendor/signalr.min.js?v=8.0.7"></script>
-  <script src="/app.js?v=user-calls-2"></script>
+  <script src="/app.js?v=admin-page-2"></script>
 </body>
 </html>

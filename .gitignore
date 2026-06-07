@@ -9,3 +9,4 @@ deploy-*.tar.gz
 *.user
 .env
 appsettings.Local.json
+/artifacts/call-for-me-api-linux-x64

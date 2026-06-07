@@ -5,6 +5,7 @@ public sealed class BillingState
     public List<PromoCode> PromoCodes { get; set; } = [];
     public List<ClientBalance> Balances { get; set; } = [];
     public List<PromoRedemption> Redemptions { get; set; } = [];
+    public List<TonPayment> TonPayments { get; set; } = [];
 }
 
 public sealed class PromoCode
@@ -35,6 +36,20 @@ public sealed class PromoRedemption
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 }
 
+public sealed class TonPayment
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public required string ClientId { get; set; }
+    public required string ExternalId { get; set; }
+    public required string Comment { get; set; }
+    public required string WalletAddress { get; set; }
+    public string? SenderAddress { get; set; }
+    public decimal TonAmount { get; set; }
+    public decimal CreditsAmount { get; set; }
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset ReceivedAt { get; set; } = DateTimeOffset.UtcNow;
+}
+
 public sealed record PromoCodeView(
     Guid Id,
     string Code,
@@ -46,3 +61,15 @@ public sealed record PromoCodeView(
     DateTimeOffset CreatedAt);
 
 public sealed record BalanceView(string ClientId, decimal Balance);
+
+public sealed record TonPaymentView(
+    Guid Id,
+    string ClientId,
+    string ExternalId,
+    string Comment,
+    string WalletAddress,
+    string? SenderAddress,
+    decimal TonAmount,
+    decimal CreditsAmount,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset ReceivedAt);
