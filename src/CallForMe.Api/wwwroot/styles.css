@@ -2184,6 +2184,23 @@ input:checked + .toggle-visual span { transform: translateX(16px); background: w
   body.mobile-view-wallet .wallet-card .ton-payment-box {
     max-height: none;
   }
+  body.mobile-view-wallet .payment-details-layout {
+    grid-template-columns: minmax(136px, 42%) minmax(0, 1fr);
+    align-items: stretch;
+    gap: 10px;
+  }
+  body.mobile-view-wallet .payment-details-values {
+    gap: 8px;
+  }
+  body.mobile-view-wallet .payment-value-card {
+    padding: 9px;
+  }
+  body.mobile-view-wallet .ton-qr-box {
+    padding: 8px;
+  }
+  body.mobile-view-wallet .ton-qr-box img {
+    width: min(100%, 184px);
+  }
   body.mobile-view-wallet .ton-topup-panel form {
     gap: 12px;
   }
@@ -2662,10 +2679,10 @@ input:checked + .toggle-visual span { transform: translateX(16px); background: w
     display: none;
   }
   .payment-details-layout {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: minmax(136px, 42%) minmax(0, 1fr);
   }
   .ton-qr-box img {
-    width: min(100%, 220px);
+    width: min(100%, 184px);
   }
   .modal-toggle {
     align-items: flex-start;
