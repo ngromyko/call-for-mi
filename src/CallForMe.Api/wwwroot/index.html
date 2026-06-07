@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,300,0,0" rel="stylesheet">
-  <link rel="stylesheet" href="/styles.css?v=admin-page-2">
+  <link rel="stylesheet" href="/styles.css?v=account-tab-2">
 </head>
 <body class="mobile-view-call">
   <div class="app-shell">
@@ -55,13 +55,13 @@
           <span>Кредиты</span>
           <strong id="balanceAmount">0</strong>
         </div>
-        <form id="redeemPromoForm" class="promo-redeem-form">
+        <form id="redeemPromoForm" class="promo-redeem-form" hidden>
           <input id="promoCodeInput" type="text" autocomplete="off" placeholder="Промокод" aria-label="Промокод">
           <button type="submit" aria-label="Применить промокод">
             <span class="material-symbols-rounded">add_card</span>
           </button>
         </form>
-        <button type="button" class="ton-toggle-button" id="openTonTopupButton">
+        <button type="button" class="ton-toggle-button" id="openTonTopupButton" hidden>
           <span class="material-symbols-rounded">account_balance_wallet</span>
           Пополнить TON / USDT
         </button>
@@ -232,14 +232,18 @@
       <span class="material-symbols-rounded">history</span>
       <span>История</span>
     </button>
-    <button type="button" class="mobile-nav-action" id="mobileNewCallButton" aria-label="Новый звонок">
-      <span class="material-symbols-rounded">add_call</span>
+    <button type="button" class="mobile-nav-button" id="mobileAccountNav" data-mobile-view="account">
+      <span class="material-symbols-rounded">account_circle</span>
+      <span>Аккаунт</span>
     </button>
     <button type="button" class="mobile-nav-button" id="mobileSettingsNav" data-mobile-view="admin" hidden>
       <span class="material-symbols-rounded">tune</span>
       <span>Админ</span>
     </button>
   </nav>
+  <button type="button" class="mobile-nav-action" id="mobileNewCallButton" aria-label="Новый звонок">
+    <span class="material-symbols-rounded">add_call</span>
+  </button>
 
   <dialog class="modal" id="newCallDialog">
     <form class="modal-card" id="newCallForm" novalidate>
@@ -568,6 +572,6 @@
     };
   </script>
   <script src="/vendor/signalr.min.js?v=8.0.7"></script>
-  <script src="/app.js?v=admin-page-2"></script>
+  <script src="/app.js?v=account-tab-2"></script>
 </body>
 </html>

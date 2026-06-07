@@ -466,8 +466,9 @@ function renderSetupState() {
 }
 
 function setMobileView(view) {
-  state.mobileView = view === "history" || view === "admin" ? view : "call";
+  state.mobileView = view === "history" || view === "account" || view === "admin" ? view : "call";
   document.body.classList.toggle("mobile-view-history", state.mobileView === "history");
+  document.body.classList.toggle("mobile-view-account", state.mobileView === "account");
   document.body.classList.toggle("mobile-view-admin", state.mobileView === "admin");
   document.body.classList.toggle("mobile-view-call", state.mobileView === "call");
   const adminPage = $("#adminPage");
@@ -568,6 +569,11 @@ function renderAuth() {
   $("#accountName").textContent = authenticated ? state.auth.user.username : "Гость";
   $("#openAuthButton").hidden = authenticated;
   $("#logoutButton").hidden = !authenticated;
+  $("#redeemPromoForm").hidden = !authenticated;
+  $("#openTonTopupButton").hidden = !authenticated;
+  if (!authenticated) {
+    $("#tonTopupPanel").hidden = true;
+  }
 }
 
 function renderPromoCodes(promoCodes = []) {
