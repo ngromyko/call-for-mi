@@ -131,6 +131,7 @@ export function Sidebar({
             <BalanceCard
               authenticated={authenticated}
               balance={balance}
+              config={config}
               onOpenTopup={onOpenTopup}
             />
           ) : null}

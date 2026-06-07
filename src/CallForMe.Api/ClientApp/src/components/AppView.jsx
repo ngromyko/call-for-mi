@@ -99,6 +99,7 @@ export function AppView({ app }) {
 
       <NewCallDialog
         open={app.newCallOpen}
+        config={app.config}
         submitting={app.newCallSubmitting}
         onClose={() => app.setNewCallOpen(false)}
         onSubmit={app.callActions.submitNewCall}

@@ -83,6 +83,7 @@ export const messages = {
       startFirst: "Сначала начните реальный звонок",
       oneMinuteCost: "Одна минута стоит {{price}} USD (кредиты). Пополните кредиты.",
       oneMinuteCostProfile: "Одна минута стоит {{price}} USD (кредиты). Зайдите в профиль и пополните кредиты.",
+      pricePerMinute: "{{price}} кредитов/мин",
       costCredits: "{{amount}} кредитов"
     },
     status: {
@@ -161,6 +162,7 @@ export const messages = {
       remoteLanguage: "Организация говорит",
       autoPilot: "Разрешить ИИ отвечать самостоятельно",
       autoPilotHelp: "Вы сможете вмешаться в любой момент",
+      pricePerMinute: "Стоимость звонка: {{price}} кредитов за минуту.",
       submit: "Позвонить за меня",
       submitting: "Дозваниваемся...",
       invalidPhone: "Введите номер в формате +48123456789.",
@@ -412,6 +414,7 @@ export const messages = {
       startFirst: "Start a real call first",
       oneMinuteCost: "One minute costs {{price}} USD credits. Top up credits.",
       oneMinuteCostProfile: "One minute costs {{price}} USD credits. Open your profile and top up credits.",
+      pricePerMinute: "{{price}} credits/min",
       costCredits: "{{amount}} credits"
     },
     status: {
@@ -490,6 +493,7 @@ export const messages = {
       remoteLanguage: "Organization speaks",
       autoPilot: "Allow AI to answer independently",
       autoPilotHelp: "You can interrupt at any time",
+      pricePerMinute: "Call price: {{price}} credits per minute.",
       submit: "Call for me",
       submitting: "Dialing...",
       invalidPhone: "Enter a number like +48123456789.",

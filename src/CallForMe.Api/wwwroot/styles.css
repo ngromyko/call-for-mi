@@ -293,6 +293,7 @@ button { color: inherit; cursor: pointer; }
 .balance-card > * { min-width: 0; }
 .balance-card > div {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
   justify-content: space-between;
   gap: 12px;
@@ -306,6 +307,15 @@ button { color: inherit; cursor: pointer; }
 .balance-card strong {
   color: #d7e7ff;
   font-size: 18px;
+}
+.minute-price {
+  flex: 0 0 100%;
+  display: block;
+  margin-top: 4px;
+  color: var(--amber);
+  font-size: 10px;
+  font-weight: 700;
+  text-align: right;
 }
 .wallet-card {
   min-width: 0;
@@ -1277,6 +1287,20 @@ input:checked + .toggle-visual span { transform: translateX(16px); background: w
 .modal-toggle { display: flex; align-items: center; gap: 12px; margin: 0 0 22px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); cursor: pointer; }
 .modal-toggle strong { font-size: 11px; }
 .modal-toggle small { margin-top: 3px; color: var(--muted); font-size: 9px; }
+.call-price-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: -10px 0 18px;
+  padding: 10px 12px;
+  border: 1px solid rgba(232,173,82,.28);
+  border-radius: 12px;
+  background: rgba(232,173,82,.08);
+  color: #f2c576;
+  font-size: 11px;
+  font-weight: 700;
+}
+.call-price-note .material-symbols-rounded { font-size: 18px; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 10px; }
 .primary-button, .secondary-button { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 0 18px; border-radius: 11px; font-size: 12px; }
 .secondary-button { border: 1px solid var(--line); background: var(--surface-2); color: var(--muted); }

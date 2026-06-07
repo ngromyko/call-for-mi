@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { Dialog, Icon } from "./Dialog.jsx";
 import { callLanguages, remoteLanguages } from "../data/languages.js";
+import { callPrice } from "../utils/callMetrics.js";
+import { formatBalance } from "../utils/format.js";
 import { useI18n } from "../i18n/I18nContext.jsx";
 
 const initialForm = {
@@ -12,11 +14,12 @@ const initialForm = {
   autoPilot: false
 };
 
-export function NewCallDialog({ open, onClose, onSubmit, submitting }) {
+export function NewCallDialog({ open, config, onClose, onSubmit, submitting }) {
   const { locale, t } = useI18n();
   const [form, setForm] = useState(initialForm);
   const [errors, setErrors] = useState({});
   const [summary, setSummary] = useState("");
+  const pricePerMinute = callPrice(config);
 
   useEffect(() => {
     if (open) {
@@ -147,6 +150,11 @@ export function NewCallDialog({ open, onClose, onSubmit, submitting }) {
           <span className="toggle-visual"><span /></span>
           <span><strong>{t("newCall.autoPilot")}</strong><small>{t("newCall.autoPilotHelp")}</small></span>
         </label>
+
+        <div className="call-price-note">
+          <Icon>payments</Icon>
+          <span>{t("newCall.pricePerMinute", { price: formatBalance(pricePerMinute) })}</span>
+        </div>
 
         <div className="modal-actions">
           <button type="button" className="secondary-button" onClick={onClose}>{t("dialogs.cancel")}</button>
