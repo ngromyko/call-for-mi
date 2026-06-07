@@ -88,15 +88,26 @@ export function TopupPanel({ config, onRefreshTon, onCopyAddress, onCopyComment 
           <div className="payment-details-values">
             <div className="payment-value-card">
               <span>{t("topup.walletAddress")}</span>
-              <code>{walletAddress}</code>
-              <button type="button" className="secondary-button" onClick={() => onCopyAddress(walletAddress)}>
+              <button
+                type="button"
+                className="copy-value-button"
+                onClick={() => onCopyAddress(walletAddress)}
+                aria-label={t("topup.copyAddress")}
+                title={t("topup.copyAddress")}
+              >
+                <code>{walletAddress}</code>
                 <Icon>content_copy</Icon>
-                {t("topup.copyAddress")}
               </button>
             </div>
             <div className="payment-value-card">
               <span>{t("topup.comment")}</span>
-              <button type="button" className="copy-value-button" onClick={() => onCopyComment(comment)}>
+              <button
+                type="button"
+                className="copy-value-button"
+                onClick={() => onCopyComment(comment)}
+                aria-label={t("topup.copyComment")}
+                title={t("topup.copyComment")}
+              >
                 <code>{comment}</code>
                 <Icon>content_copy</Icon>
               </button>
@@ -105,7 +116,7 @@ export function TopupPanel({ config, onRefreshTon, onCopyAddress, onCopyComment 
         </div>
         {canOpenWallet ? (
           <a
-            className="primary-button"
+            className="primary-button open-wallet-button"
             href={paymentLink}
             target="_blank"
             rel="noreferrer"
@@ -114,7 +125,7 @@ export function TopupPanel({ config, onRefreshTon, onCopyAddress, onCopyComment 
             <span>{isUsdt ? t("topup.openUsdtWallet") : t("topup.openWallet")}</span>
           </a>
         ) : null}
-        <button type="button" className="secondary-button" onClick={onRefreshTon}>
+        <button type="button" className="secondary-button refresh-payment-button" onClick={onRefreshTon}>
           <Icon>done</Icon>
           {t("topup.refreshNow")}
         </button>

@@ -593,6 +593,9 @@ button { color: inherit; cursor: pointer; }
   width: 100%;
   min-height: 34px;
 }
+.payment-value-card .copy-value-button {
+  min-height: 42px;
+}
 .payment-details-layout {
   display: grid;
   grid-template-columns: minmax(180px, 220px) minmax(0, 1fr);
@@ -924,6 +927,15 @@ body.mobile-view-wallet .wallet-balance-card {
 }
 body.mobile-view-wallet .payment-card.ton-topup-panel {
   gap: 14px;
+}
+body.mobile-view-wallet .ton-payment-box .open-wallet-button {
+  color: white;
+  text-decoration: none;
+}
+body.mobile-view-wallet .ton-payment-box .refresh-payment-button {
+  min-height: 42px;
+  color: var(--muted);
+  font-size: 13px;
 }
 body.mobile-view-wallet .ton-topup-panel form {
   gap: 12px;
@@ -2185,9 +2197,9 @@ input:checked + .toggle-visual span { transform: translateX(16px); background: w
     max-height: none;
   }
   body.mobile-view-wallet .payment-details-layout {
-    grid-template-columns: minmax(136px, 42%) minmax(0, 1fr);
-    align-items: stretch;
-    gap: 10px;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+    gap: 8px;
   }
   body.mobile-view-wallet .payment-details-values {
     gap: 8px;
@@ -2196,7 +2208,16 @@ input:checked + .toggle-visual span { transform: translateX(16px); background: w
     padding: 9px;
   }
   body.mobile-view-wallet .ton-qr-box {
-    padding: 8px;
+    display: none;
+  }
+  body.mobile-view-wallet .copy-value-button {
+    min-height: 44px;
+    padding: 9px 10px;
+    border-radius: 12px;
+  }
+  body.mobile-view-wallet .payment-value-card code {
+    font-size: 10px;
+    line-height: 1.35;
   }
   body.mobile-view-wallet .ton-qr-box img {
     width: min(100%, 184px);
