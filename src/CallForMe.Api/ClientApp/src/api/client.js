@@ -17,11 +17,12 @@ export async function api(url, options = {}) {
   if (!response.ok) {
     let detail = "";
     let problem = null;
+    const body = await response.text();
     try {
-      problem = await response.json();
+      problem = body ? JSON.parse(body) : null;
       detail = problem.detail || problem.title || "";
     } catch {
-      detail = await response.text();
+      detail = body;
     }
 
     throw new ApiError(detail || `HTTP ${response.status}`, problem, response.status);
