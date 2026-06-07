@@ -226,6 +226,7 @@ app.MapPost("/api/auth/telegram", async (
     HttpContext context,
     IUserRepository users,
     IOptionsMonitor<TelegramAuthOptions> telegram,
+    ILogger<Program> logger,
     CancellationToken cancellationToken) =>
 {
     var options = telegram.CurrentValue;
@@ -237,20 +238,46 @@ app.MapPost("/api/auth/telegram", async (
             statusCode: StatusCodes.Status503ServiceUnavailable);
     }
 
-    var (profile, error) = !string.IsNullOrWhiteSpace(request.IdToken)
-        ? await ValidateTelegramIdTokenAsync(request.IdToken, options, cancellationToken)
-        : ValidateLegacyTelegramLogin(request, options);
+    TelegramUserProfile? profile;
+    string error;
+    try
+    {
+        (profile, error) = !string.IsNullOrWhiteSpace(request.IdToken)
+            ? await ValidateTelegramIdTokenAsync(request.IdToken, options, cancellationToken)
+            : ValidateLegacyTelegramLogin(request, options);
+    }
+    catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+    {
+        logger.LogWarning(exception, "Telegram login token validation threw an exception.");
+        return Results.Problem(
+            title: "Telegram login failed",
+            detail: "Не удалось проверить Telegram-токен. Попробуйте ещё раз.",
+            statusCode: StatusCodes.Status401Unauthorized);
+    }
+
     if (profile is null)
     {
+        logger.LogWarning("Telegram login rejected: {Error}", error);
         return Results.Problem(
             title: "Telegram login failed",
             detail: error,
             statusCode: StatusCodes.Status401Unauthorized);
     }
 
-    var user = await users.GetOrCreateTelegramAsync(profile, cancellationToken);
-    await SignInUserAsync(context, user);
-    return Results.Ok(new { authenticated = true, user, balanceClientId = BalanceClientId(user.Id) });
+    try
+    {
+        var user = await users.GetOrCreateTelegramAsync(profile, cancellationToken);
+        await SignInUserAsync(context, user);
+        return Results.Ok(new { authenticated = true, user, balanceClientId = BalanceClientId(user.Id) });
+    }
+    catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+    {
+        logger.LogError(exception, "Telegram login failed while creating or signing in user {TelegramId}.", profile.Id);
+        return Results.Problem(
+            title: "Telegram login failed",
+            detail: "Telegram подтвердил вход, но сервер не смог создать сессию.",
+            statusCode: StatusCodes.Status500InternalServerError);
+    }
 });
 
 app.MapPost("/api/auth/logout", async (HttpContext context) =>
@@ -1326,26 +1353,26 @@ static async Task<(TelegramUserProfile? Profile, string Error)> ValidateTelegram
         }
 
         var root = payload.RootElement;
-        var issuer = root.TryGetProperty("iss", out var issuerElement) ? issuerElement.GetString() : "";
+        var issuer = GetJsonString(root, "iss") ?? "";
         if (!string.Equals(issuer, "https://oauth.telegram.org", StringComparison.Ordinal))
         {
             return (null, "Некорректный issuer Telegram id_token.");
         }
 
-        var audience = root.TryGetProperty("aud", out var audienceElement) ? audienceElement.GetString() : "";
-        if (!string.Equals(audience, options.ClientId.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal))
+        var clientId = options.ClientId.ToString(CultureInfo.InvariantCulture);
+        if (!JsonClaimEquals(root, "aud", clientId))
         {
             return (null, "Telegram id_token выпущен не для этого приложения.");
         }
 
         var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-        var exp = root.TryGetProperty("exp", out var expElement) && expElement.TryGetInt64(out var expValue) ? expValue : 0;
+        var exp = GetJsonInt64(root, "exp") ?? 0;
         if (exp <= now)
         {
             return (null, "Telegram id_token устарел.");
         }
 
-        var iat = root.TryGetProperty("iat", out var iatElement) && iatElement.TryGetInt64(out var iatValue) ? iatValue : now;
+        var iat = GetJsonInt64(root, "iat") ?? now;
         var maxAge = Math.Max(options.MaxAuthAgeSeconds, 60);
         if (now - iat > maxAge)
         {
@@ -1359,24 +1386,26 @@ static async Task<(TelegramUserProfile? Profile, string Error)> ValidateTelegram
             return (null, "Подпись Telegram id_token не прошла проверку.");
         }
 
-        var id = root.TryGetProperty("id", out var idElement) && idElement.TryGetInt64(out var telegramId)
-            ? telegramId
-            : 0;
+        var id = GetJsonInt64(root, "id") ?? 0;
         if (id <= 0)
         {
-            var subject = root.TryGetProperty("sub", out var subElement) ? subElement.GetString() : "";
+            var subject = GetJsonString(root, "sub") ?? "";
             if (!long.TryParse(subject, NumberStyles.Integer, CultureInfo.InvariantCulture, out id) || id <= 0)
             {
                 return (null, "Telegram не вернул user id.");
             }
         }
 
-        var username = root.TryGetProperty("preferred_username", out var usernameElement)
-            ? usernameElement.GetString()
-            : null;
-        var name = root.TryGetProperty("name", out var nameElement) ? nameElement.GetString() : null;
-        var picture = root.TryGetProperty("picture", out var pictureElement) ? pictureElement.GetString() : null;
-        var (firstName, lastName) = SplitTelegramName(name);
+        var username = GetJsonString(root, "preferred_username") ?? GetJsonString(root, "username");
+        var firstName = GetJsonString(root, "given_name") ?? GetJsonString(root, "first_name");
+        var lastName = GetJsonString(root, "family_name") ?? GetJsonString(root, "last_name");
+        var name = GetJsonString(root, "name");
+        if (string.IsNullOrWhiteSpace(firstName) && string.IsNullOrWhiteSpace(lastName))
+        {
+            (firstName, lastName) = SplitTelegramName(name);
+        }
+
+        var picture = GetJsonString(root, "picture") ?? GetJsonString(root, "photo_url");
         return (new TelegramUserProfile(id, username, firstName, lastName, picture), "");
     }
 }
@@ -1427,6 +1456,71 @@ static byte[] Base64UrlDecode(string value)
     var base64 = value.Replace('-', '+').Replace('_', '/');
     base64 = base64.PadRight(base64.Length + (4 - base64.Length % 4) % 4, '=');
     return Convert.FromBase64String(base64);
+}
+
+static string? GetJsonString(JsonElement root, string propertyName)
+{
+    if (!root.TryGetProperty(propertyName, out var element))
+    {
+        return null;
+    }
+
+    return element.ValueKind switch
+    {
+        JsonValueKind.String => element.GetString(),
+        JsonValueKind.Number => element.GetRawText(),
+        JsonValueKind.True => "true",
+        JsonValueKind.False => "false",
+        _ => null
+    };
+}
+
+static long? GetJsonInt64(JsonElement root, string propertyName)
+{
+    if (!root.TryGetProperty(propertyName, out var element))
+    {
+        return null;
+    }
+
+    if (element.ValueKind == JsonValueKind.Number && element.TryGetInt64(out var number))
+    {
+        return number;
+    }
+
+    if (element.ValueKind == JsonValueKind.String &&
+        long.TryParse(element.GetString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed))
+    {
+        return parsed;
+    }
+
+    return null;
+}
+
+static bool JsonClaimEquals(JsonElement root, string propertyName, string expected)
+{
+    if (!root.TryGetProperty(propertyName, out var element))
+    {
+        return false;
+    }
+
+    if (element.ValueKind == JsonValueKind.Array)
+    {
+        return element.EnumerateArray().Any(item => JsonElementEquals(item, expected));
+    }
+
+    return JsonElementEquals(element, expected);
+}
+
+static bool JsonElementEquals(JsonElement element, string expected)
+{
+    var value = element.ValueKind switch
+    {
+        JsonValueKind.String => element.GetString(),
+        JsonValueKind.Number => element.GetRawText(),
+        _ => null
+    };
+
+    return string.Equals(value, expected, StringComparison.Ordinal);
 }
 
 static (string? FirstName, string? LastName) SplitTelegramName(string? name)
