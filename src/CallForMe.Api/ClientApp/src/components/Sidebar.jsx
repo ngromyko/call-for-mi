@@ -81,7 +81,7 @@ export function Sidebar({
           <section className="account-card" onClick={() => !authenticated && onOpenAuth("login")}>
             <div>
               <span>{t("sidebar.account")}</span>
-              <strong>{authenticated ? auth.user.username : t("sidebar.guest")}</strong>
+              <strong>{authenticated ? (auth.user.displayName || auth.user.username) : t("sidebar.guest")}</strong>
             </div>
             <div className="account-actions">
               {!authenticated ? (

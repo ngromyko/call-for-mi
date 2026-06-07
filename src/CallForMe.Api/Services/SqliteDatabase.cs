@@ -78,6 +78,7 @@ public sealed class SqliteDatabase
             CREATE TABLE IF NOT EXISTS users (
                 id TEXT PRIMARY KEY,
                 username TEXT NOT NULL UNIQUE,
+                display_name TEXT NULL,
                 password_hash TEXT NOT NULL,
                 password_salt TEXT NOT NULL,
                 telegram_id TEXT NULL,
@@ -154,6 +155,7 @@ public sealed class SqliteDatabase
         AddColumnIfMissing(connection, "ton_payments", "confirmed_at", "TEXT NULL");
         AddColumnIfMissing(connection, "ton_payments", "confirmed_by", "TEXT NULL");
         AddColumnIfMissing(connection, "users", "telegram_id", "TEXT NULL");
+        AddColumnIfMissing(connection, "users", "display_name", "TEXT NULL");
 
         using var tonIndex = connection.CreateCommand();
         tonIndex.CommandText = "CREATE UNIQUE INDEX IF NOT EXISTS ux_ton_payments_external_id ON ton_payments(external_id)";

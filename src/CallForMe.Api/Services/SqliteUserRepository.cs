@@ -23,11 +23,11 @@ public sealed class SqliteUserRepository(SqliteDatabase database, IOptionsMonito
     {
         await using var connection = database.OpenConnection();
         await using var command = connection.CreateCommand();
-        command.CommandText = "SELECT id, username FROM users WHERE id = $id";
+        command.CommandText = "SELECT id, username, display_name FROM users WHERE id = $id";
         command.Parameters.AddWithValue("$id", id.ToString());
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         return await reader.ReadAsync(cancellationToken)
-            ? new UserAccountView(Guid.Parse(reader.GetString(0)), reader.GetString(1))
+            ? ToView(reader)
             : null;
     }
 
@@ -40,6 +40,7 @@ public sealed class SqliteUserRepository(SqliteDatabase database, IOptionsMonito
             SELECT
                 u.id,
                 u.username,
+                u.display_name,
                 u.created_at,
                 COALESCE(b.balance, '0') AS balance,
                 COUNT(c.id) AS total_calls,
@@ -50,7 +51,7 @@ public sealed class SqliteUserRepository(SqliteDatabase database, IOptionsMonito
             FROM users u
             LEFT JOIN calls c ON c.user_id = u.id
             LEFT JOIN client_balances b ON b.client_id = 'user-' || lower(replace(u.id, '-', ''))
-            GROUP BY u.id, u.username, u.created_at, b.balance
+            GROUP BY u.id, u.username, u.display_name, u.created_at, b.balance
             ORDER BY last_call_at IS NULL, last_call_at DESC, u.created_at DESC
             """;
 
@@ -58,16 +59,17 @@ public sealed class SqliteUserRepository(SqliteDatabase database, IOptionsMonito
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
         {
-            var lastCall = reader.IsDBNull(8) ? (DateTimeOffset?)null : DateTimeOffset.Parse(reader.GetString(8));
+            var lastCall = reader.IsDBNull(9) ? (DateTimeOffset?)null : DateTimeOffset.Parse(reader.GetString(9));
             users.Add(new AdminUserStatsView(
                 Guid.Parse(reader.GetString(0)),
                 reader.GetString(1),
-                DateTimeOffset.Parse(reader.GetString(2)),
-                decimal.TryParse(reader.GetString(3), out var balance) ? balance : 0m,
-                Convert.ToInt32(reader.GetInt64(4)),
+                DisplayName(reader.GetString(1), reader.IsDBNull(2) ? null : reader.GetString(2)),
+                DateTimeOffset.Parse(reader.GetString(3)),
+                decimal.TryParse(reader.GetString(4), out var balance) ? balance : 0m,
                 Convert.ToInt32(reader.GetInt64(5)),
                 Convert.ToInt32(reader.GetInt64(6)),
-                reader.GetInt64(7),
+                Convert.ToInt32(reader.GetInt64(7)),
+                reader.GetInt64(8),
                 lastCall));
         }
 
@@ -120,7 +122,7 @@ public sealed class SqliteUserRepository(SqliteDatabase database, IOptionsMonito
             return (null, "Такой username уже занят.");
         }
 
-        return (new UserAccountView(id, normalized), null);
+        return (new UserAccountView(id, normalized, normalized), null);
     }
 
     public async Task<UserAccountView?> ValidateLoginAsync(string username, string password, CancellationToken cancellationToken)
@@ -128,7 +130,7 @@ public sealed class SqliteUserRepository(SqliteDatabase database, IOptionsMonito
         EnsureAdminUser();
         await using var connection = database.OpenConnection();
         await using var command = connection.CreateCommand();
-        command.CommandText = "SELECT id, username, password_hash, password_salt FROM users WHERE username = $username";
+        command.CommandText = "SELECT id, username, display_name, password_hash, password_salt FROM users WHERE username = $username";
         command.Parameters.AddWithValue("$username", NormalizeUsername(username));
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         if (!await reader.ReadAsync(cancellationToken))
@@ -136,11 +138,11 @@ public sealed class SqliteUserRepository(SqliteDatabase database, IOptionsMonito
             return null;
         }
 
-        var expected = Convert.FromBase64String(reader.GetString(2));
-        var salt = Convert.FromBase64String(reader.GetString(3));
+        var expected = Convert.FromBase64String(reader.GetString(3));
+        var salt = Convert.FromBase64String(reader.GetString(4));
         var actual = HashPassword(password, salt);
         return CryptographicOperations.FixedTimeEquals(actual, expected)
-            ? new UserAccountView(Guid.Parse(reader.GetString(0)), reader.GetString(1))
+            ? ToView(reader)
             : null;
     }
 
@@ -151,16 +153,23 @@ public sealed class SqliteUserRepository(SqliteDatabase database, IOptionsMonito
         EnsureAdminUser();
         var telegramId = profile.Id.ToString();
         var username = $"tg-{telegramId}";
+        var displayName = TelegramDisplayName(profile);
 
         await using var connection = database.OpenConnection();
         await using (var findByTelegram = connection.CreateCommand())
         {
-            findByTelegram.CommandText = "SELECT id, username FROM users WHERE telegram_id = $telegram_id";
+            findByTelegram.CommandText = """
+                UPDATE users
+                SET display_name = $display_name
+                WHERE telegram_id = $telegram_id
+                RETURNING id, username, display_name
+                """;
             findByTelegram.Parameters.AddWithValue("$telegram_id", telegramId);
+            findByTelegram.Parameters.AddWithValue("$display_name", displayName);
             await using var reader = await findByTelegram.ExecuteReaderAsync(cancellationToken);
             if (await reader.ReadAsync(cancellationToken))
             {
-                return new UserAccountView(Guid.Parse(reader.GetString(0)), reader.GetString(1));
+                return ToView(reader);
             }
         }
 
@@ -180,11 +189,12 @@ public sealed class SqliteUserRepository(SqliteDatabase database, IOptionsMonito
             var id = Guid.NewGuid();
             await using var insert = connection.CreateCommand();
             insert.CommandText = """
-                INSERT INTO users (id, username, password_hash, password_salt, telegram_id, created_at)
-                VALUES ($id, $username, $password_hash, $password_salt, $telegram_id, $created_at)
+                INSERT INTO users (id, username, display_name, password_hash, password_salt, telegram_id, created_at)
+                VALUES ($id, $username, $display_name, $password_hash, $password_salt, $telegram_id, $created_at)
                 """;
             insert.Parameters.AddWithValue("$id", id.ToString());
             insert.Parameters.AddWithValue("$username", candidate);
+            insert.Parameters.AddWithValue("$display_name", displayName);
             insert.Parameters.AddWithValue("$password_hash", Convert.ToBase64String(hash));
             insert.Parameters.AddWithValue("$password_salt", Convert.ToBase64String(salt));
             insert.Parameters.AddWithValue("$telegram_id", telegramId);
@@ -192,7 +202,7 @@ public sealed class SqliteUserRepository(SqliteDatabase database, IOptionsMonito
             try
             {
                 await insert.ExecuteNonQueryAsync(cancellationToken);
-                return new UserAccountView(id, candidate);
+                return new UserAccountView(id, candidate, displayName);
             }
             catch (SqliteException exception) when (exception.SqliteErrorCode == 19)
             {
@@ -210,6 +220,31 @@ public sealed class SqliteUserRepository(SqliteDatabase database, IOptionsMonito
 
     private static bool IsAdminUsername(string username) =>
         string.Equals(username, AdminUsername, StringComparison.Ordinal);
+
+    private static UserAccountView ToView(SqliteDataReader reader)
+    {
+        var username = reader.GetString(1);
+        var displayName = reader.IsDBNull(2) ? null : reader.GetString(2);
+        return new UserAccountView(Guid.Parse(reader.GetString(0)), username, DisplayName(username, displayName));
+    }
+
+    private static string DisplayName(string username, string? displayName) =>
+        string.IsNullOrWhiteSpace(displayName) ? username : displayName.Trim();
+
+    private static string TelegramDisplayName(TelegramUserProfile profile)
+    {
+        if (!string.IsNullOrWhiteSpace(profile.Username))
+        {
+            return $"@{profile.Username.Trim().TrimStart('@')}";
+        }
+
+        var fullName = string.Join(' ', new[] { profile.FirstName, profile.LastName }
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => value!.Trim()));
+        return string.IsNullOrWhiteSpace(fullName)
+            ? $"Telegram {profile.Id}"
+            : fullName;
+    }
 
     private void EnsureAdminUser()
     {

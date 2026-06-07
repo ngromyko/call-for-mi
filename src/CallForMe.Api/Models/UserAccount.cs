@@ -4,13 +4,14 @@ public sealed class UserAccount
 {
     public Guid Id { get; set; } = Guid.NewGuid();
     public required string Username { get; set; }
+    public string? DisplayName { get; set; }
     public required string PasswordHash { get; set; }
     public required string PasswordSalt { get; set; }
     public long? TelegramId { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 }
 
-public sealed record UserAccountView(Guid Id, string Username);
+public sealed record UserAccountView(Guid Id, string Username, string DisplayName);
 
 public sealed record TelegramUserProfile(
     long Id,
@@ -22,6 +23,7 @@ public sealed record TelegramUserProfile(
 public sealed record AdminUserStatsView(
     Guid Id,
     string Username,
+    string DisplayName,
     DateTimeOffset CreatedAt,
     decimal Balance,
     int TotalCalls,

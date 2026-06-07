@@ -23,7 +23,7 @@ export function AdminUsers({ users, onRefresh }) {
           return (
             <article key={user.id || user.username} className="admin-user-item">
               <div className="admin-user-main">
-                <strong>{user.username}</strong>
+                <strong>{user.displayName || user.username}</strong>
                 <span>{t("admin.created", { date: formatShortDate(user.createdAt) })}</span>
               </div>
               <div className="admin-user-stats">
