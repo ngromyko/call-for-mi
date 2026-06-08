@@ -4,7 +4,8 @@ import { isFailedCall, isLive, speakerName, statusName } from "../utils/callStat
 export function useBodyClasses({ activeCall, mobileView }) {
   useEffect(() => {
     function applyClasses() {
-      const latest = activeCall?.transcript?.at(-1);
+      const transcript = activeCall?.transcript || [];
+      const latest = transcript.length ? transcript[transcript.length - 1] : null;
       const remoteSpeaking = isLive(activeCall) && speakerName(latest) === "Remote";
       const normalizedStatus = statusName(activeCall?.status);
       const statusClass = !activeCall

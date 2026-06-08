@@ -8,7 +8,8 @@ export function ReplyArea({ call, onSendMessage, onToggleAutoPilot, onEndCall, d
   const { t } = useI18n();
   const [sending, setSending] = useState(false);
   const live = isLive(call);
-  const latest = call?.transcript?.at(-1);
+  const transcript = call?.transcript || [];
+  const latest = transcript.length ? transcript[transcript.length - 1] : null;
   const suggestions = Array.isArray(call?.suggestions) ? call.suggestions : [];
   const placeholder = call
     ? (live

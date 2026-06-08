@@ -1,8 +1,8 @@
-const CACHE_NAME = "callforme-wallet-pwa-shell-v14";
+const CACHE_NAME = "callforme-wallet-pwa-shell-v20";
 const APP_SHELL = [
   "/",
   "/index.html",
-  "/styles.css?v=wallet-pwa-14",
+  "/styles.css?v=wallet-pwa-19",
   "/vendor/signalr.min.js?v=8.0.7",
   "/manifest.webmanifest?v=2",
   "/icon.svg?v=2",
@@ -54,17 +54,15 @@ self.addEventListener("fetch", event => {
         return cached;
       }
 
-      return fetch(request)
-        .then(response => {
-          if (!response || response.status !== 200 || response.type !== "basic") {
-            return response;
-          }
-
-          const copy = response.clone();
-          caches.open(CACHE_NAME).then(cache => cache.put(request, copy));
+      return fetch(request).then(response => {
+        if (!response || response.status !== 200 || response.type !== "basic") {
           return response;
-        })
-        .catch(() => caches.match("/index.html"));
+        }
+
+        const copy = response.clone();
+        caches.open(CACHE_NAME).then(cache => cache.put(request, copy));
+        return response;
+      });
     })
   );
 });

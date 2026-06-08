@@ -30,9 +30,9 @@ export function WalletPanel({
 }) {
   const { t } = useI18n();
   const [promoCode, setPromoCode] = useState("");
-  const lastTransaction = (payments || [])
-    .filter(item => String(item.status || "").toLowerCase() !== "processing")
-    .at(0);
+  const confirmedPayments = (payments || [])
+    .filter(item => String(item.status || "").toLowerCase() !== "processing");
+  const lastTransaction = confirmedPayments.length ? confirmedPayments[0] : null;
 
   return (
     <section className="wallet-card" aria-label={t("navigation.wallet")}>

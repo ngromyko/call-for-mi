@@ -8,7 +8,7 @@ function userNameByClientId(users, clientId) {
   if (!id.startsWith("user-")) return id || "-";
 
   const normalized = id.slice(5).toLowerCase();
-  const user = (users || []).find(item => String(item.id || "").replaceAll("-", "").toLowerCase() === normalized);
+  const user = (users || []).find(item => String(item.id || "").replace(/-/g, "").toLowerCase() === normalized);
   return user?.username || id;
 }
 
