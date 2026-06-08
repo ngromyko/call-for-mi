@@ -37,10 +37,11 @@ function seoFilesPlugin() {
       }
 
       const homeUrl = `${siteUrl}/`;
-      const imageUrl = `${siteUrl}/icon-512.png`;
+      const imageUrl = `${siteUrl}/og-preview.png?v=20260608`;
       return html
         .replace(/<meta property="og:url" content="[^"]*">/, `<meta property="og:url" content="${escapeHtml(homeUrl)}">`)
         .replace(/<meta property="og:image" content="[^"]*">/, `<meta property="og:image" content="${escapeHtml(imageUrl)}">`)
+        .replace(/<meta property="og:image:secure_url" content="[^"]*">/, `<meta property="og:image:secure_url" content="${escapeHtml(imageUrl)}">`)
         .replace(/<meta name="twitter:image" content="[^"]*">/, `<meta name="twitter:image" content="${escapeHtml(imageUrl)}">`)
         .replace(/<link rel="canonical" href="[^"]*">/, `<link rel="canonical" href="${escapeHtml(homeUrl)}">`);
     },
