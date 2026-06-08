@@ -7,6 +7,10 @@
 .vs/
 publish/
 deploy-*.tar.gz
+src/CallForMe.Api/wwwroot/index.html
+src/CallForMe.Api/wwwroot/assets/index-*.js
+src/CallForMe.Api/wwwroot/robots.txt
+src/CallForMe.Api/wwwroot/sitemap.xml
 *.log
 *.tmp
 *.user
